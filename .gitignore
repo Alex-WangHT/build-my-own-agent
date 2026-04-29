@@ -1,0 +1,219 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+pdm.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Logs
+logs/
+*.log
+
+# Local config
+.local/
+.config/
+
+# Test outputs
+test-output/
+
+# OS specific
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# IDE
+.project
+.classpath
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Debug
+.pudb.cfg
+
+# Mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Rope
+.ropeproject/
+
+# Mac
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.directory
+
+# API Keys and secrets
+# 注意：.env.example 是示例文件，不应该被忽略
+# .env 已在上面的 Environments 部分被忽略
+
+# Models and large data
+*.pth
+*.pt
+*.pkl
+*.h5
+*.hdf5
+*.parquet
+*.feather
+
+# Output files
+output/
+results/
+artifacts/
+
+# Docker
+.dockerignore
+
+# Kubernetes
+*.yaml.tpl
