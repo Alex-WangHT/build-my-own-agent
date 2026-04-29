@@ -51,7 +51,19 @@ class Settings(BaseSettings):
     # API调用配置
     request_timeout: int = Field(
         default=60,
-        description="API请求超时时间（秒）",
+        description="普通API请求超时时间（秒）",
+    )
+
+    stream_timeout: int = Field(
+        default=120,
+        alias="STREAM_TIMEOUT",
+        description="流式输出超时时间（秒），对于响应较慢的模型可以调大",
+    )
+
+    first_token_timeout: int = Field(
+        default=30,
+        alias="FIRST_TOKEN_TIMEOUT",
+        description="等待第一个token的超时时间（秒）",
     )
 
     max_retries: int = Field(
