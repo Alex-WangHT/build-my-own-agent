@@ -1,3 +1,3 @@
-from .app import ChatApp, run_tui
+from .app import SimpleCLI, run_cli
 
-__all__ = ["ChatApp", "run_tui"]
+__all__ = ["SimpleCLI", "run_cli"]
