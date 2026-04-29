@@ -454,6 +454,8 @@ class SiliconFlowClient:
         Note:
             这是一个简化的流式实现，实际使用时可能需要更完善的SSE解析
         """
+        import time
+
         model = model or self.default_model
         temperature = temperature if temperature is not None else self._settings.temperature
         max_tokens = max_tokens if max_tokens is not None else self._settings.max_tokens
@@ -474,33 +476,126 @@ class SiliconFlowClient:
             "Accept": "text/event-stream",
         }
 
-        response = self._session.post(
-            url,
-            json=request.to_dict(),
-            headers=headers,
-            stream=True,
-            timeout=self._settings.request_timeout,
-        )
+        # 流式输出使用更长的超时时间
+        stream_timeout = getattr(self._settings, 'stream_timeout', 120)
 
-        response.raise_for_status()
+        try:
+            response = self._session.post(
+                url,
+                json=request.to_dict(),
+                headers=headers,
+                stream=True,
+                timeout=stream_timeout,
+            )
 
-        for line in response.iter_lines():
-            if line:
-                line = line.decode("utf-8")
-                if line.startswith("data: "):
-                    data = line[6:]
-                    if data == "[DONE]":
-                        break
-                    try:
-                        chunk = json.loads(data)
-                        choices = chunk.get("choices", [])
-                        if choices:
-                            delta = choices[0].get("delta", {})
-                            content = delta.get("content", "")
-                            if content:
-                                yield content
-                    except json.JSONDecodeError:
+            # 检查HTTP状态码
+            if response.status_code == 401:
+                error_data = {}
+                try:
+                    error_data = response.json()
+                except:
+                    pass
+                error_msg = error_data.get('error', {}).get('message', '认证失败')
+                raise AuthenticationError(
+                    f"认证失败: {error_msg}",
+                    status_code=401,
+                    response=error_data,
+                )
+            elif response.status_code == 429:
+                error_data = {}
+                try:
+                    error_data = response.json()
+                except:
+                    pass
+                error_msg = error_data.get('error', {}).get('message', '请求过于频繁')
+                raise RateLimitError(
+                    f"速率限制: {error_msg}",
+                    status_code=429,
+                    response=error_data,
+                )
+            elif response.status_code >= 400:
+                error_data = {}
+                try:
+                    error_data = response.json()
+                except:
+                    pass
+                error_msg = error_data.get('error', {}).get('message', f'HTTP {response.status_code}')
+                raise APIError(
+                    f"API错误: {error_msg}",
+                    status_code=response.status_code,
+                    response=error_data,
+                )
+
+            first_token = True
+            start_time = time.time()
+            first_token_timeout = getattr(self._settings, 'first_token_timeout', 30)
+
+            for line in response.iter_lines():
+                if not line:
+                    continue
+
+                try:
+                    line = line.decode("utf-8")
+                except UnicodeDecodeError:
+                    continue
+
+                if not line.startswith("data: "):
+                    continue
+
+                data = line[6:]
+                if data == "[DONE]":
+                    break
+
+                try:
+                    chunk = json.loads(data)
+                    choices = chunk.get("choices", [])
+
+                    if not choices:
                         continue
+
+                    choice = choices[0]
+                    finish_reason = choice.get("finish_reason")
+
+                    # 检查是否结束
+                    if finish_reason == "stop" or finish_reason == "length":
+                        # 检查是否还有最后的content
+                        delta = choice.get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            yield content
+                        break
+
+                    # 提取内容
+                    delta = choice.get("delta", {})
+                    content = delta.get("content", "")
+
+                    if content:
+                        # 第一个token到达
+                        if first_token:
+                            first_token = False
+                        yield content
+
+                except json.JSONDecodeError:
+                    continue
+
+            # 检查是否收到了任何内容
+            if first_token:
+                elapsed = time.time() - start_time
+                raise APIError(
+                    f"未收到任何响应内容（等待了 {elapsed:.1f} 秒），"
+                    f"模型 {model} 可能响应较慢，请尝试增加超时时间 "
+                    f"或使用其他模型。"
+                )
+
+        except requests.exceptions.Timeout:
+            elapsed = time.time() - start_time if 'start_time' in dir() else 0
+            raise APIError(
+                f"请求超时（已等待 {elapsed:.1f} 秒）。"
+                f"如果使用的是响应较慢的模型（如Qwen-4B），"
+                f"请尝试增加 STREAM_TIMEOUT 环境变量的值。"
+            )
+        except requests.exceptions.RequestException as e:
+            raise NetworkError(f"网络错误: {str(e)}") from e
 
     def list_models(self) -> List[Dict[str, Any]]:
         """

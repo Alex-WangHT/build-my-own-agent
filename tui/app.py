@@ -4,11 +4,53 @@
 """
 
 import sys
+import threading
+import time
 from datetime import datetime
 from typing import Optional
 
 from agent.simple_agent import SimpleAgent
 from config.settings import get_settings, Settings
+
+
+class LoadingAnimation:
+    """加载动画类"""
+
+    def __init__(self, message: str = "正在思考", interval: float = 0.2):
+        self.message = message
+        self.interval = interval
+        self._running = False
+        self._thread: Optional[threading.Thread] = None
+        self._frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        self._frame_index = 0
+
+    def _animate(self):
+        """动画循环"""
+        while self._running:
+            frame = self._frames[self._frame_index % len(self._frames)]
+            print(f"\r{frame} {self.message}...", end="", flush=True)
+            self._frame_index += 1
+            time.sleep(self.interval)
+
+    def start(self):
+        """启动动画"""
+        self._running = True
+        self._thread = threading.Thread(target=self._animate, daemon=True)
+        self._thread.start()
+
+    def stop(self, clear: bool = True):
+        """
+        停止动画
+
+        Args:
+            clear: 是否清除动画显示
+        """
+        self._running = False
+        if self._thread:
+            self._thread.join(timeout=1.0)
+        if clear:
+            # 清除动画行，使用足够多的空格覆盖
+            print("\r" + " " * (len(self.message) + 10), end="\r", flush=True)
 
 
 class SimpleCLI:
@@ -30,6 +72,7 @@ class SimpleCLI:
         print("=" * 60)
         print()
         print(f"📦 模型: {self._agent.model if self._agent else self._settings.siliconflow_model}")
+        print(f"⏱️  请求超时: {self._settings.request_timeout}秒")
         print(f"💡 输入消息进行对话，或输入以下命令：")
         print("   /help    - 显示帮助")
         print("   /clear   - 清空对话历史")
@@ -38,6 +81,7 @@ class SimpleCLI:
         print("   /model   - 切换模型")
         print("   /quit    - 退出程序")
         print()
+        print("✨ 提示: AI回复会实时流式显示，不会卡顿！")
         print("-" * 60)
         print()
 
@@ -56,10 +100,9 @@ class SimpleCLI:
         print("  /model <名称>  切换到指定模型")
         print("  /quit, /exit   退出程序")
         print()
-        print("示例：")
-        print("  你好，请介绍一下你自己")
-        print("  /model deepseek-ai/DeepSeek-V3")
-        print("  /stats")
+        print("流式输出说明：")
+        print("  - AI回复会实时逐字显示")
+        print("  - 如果长时间没有响应，可以按 Ctrl+C 中断")
         print()
 
     def _print_stats(self):
@@ -114,6 +157,8 @@ class SimpleCLI:
         if not model_name:
             print("❌ 请指定模型名称")
             print("   用法: /model <模型名称>")
+            print()
+            print("   提示: 输入 /models 查看可用模型列表")
             return
 
         self._agent.model = model_name
@@ -194,49 +239,85 @@ class SimpleCLI:
             print(f"   {line}")
         print()
 
-    def _chat(self, user_message: str):
+    def _chat_stream(self, user_message: str) -> bool:
         """
-        进行对话
+        流式对话（实时显示）
 
         Args:
             user_message: 用户消息
+
+        Returns:
+            是否成功
         """
         if not self._agent:
             print("❌ Agent未初始化")
-            return
+            return False
 
-        print("🤔 正在思考...", end="\r")
+        # 显示加载动画（等待第一个token）
+        loading = LoadingAnimation("正在思考", interval=0.1)
+        full_response = ""
+        first_token = True
+        start_time = time.time()
 
         try:
-            # 调用Agent获取回复
-            if self._settings.debug:
-                # 调试模式：流式输出
-                print("🤖 AI助手: ")
-                full_response = ""
-                for chunk in self._agent.chat_stream(user_message):
-                    full_response += chunk
-                    print(chunk, end="", flush=True)
-                print()  # 换行
-                print()
-            else:
-                # 普通模式
-                response = self._agent.chat(user_message)
-                self._print_assistant_response(response)
+            for chunk in self._agent.chat_stream(user_message):
+                if first_token:
+                    # 第一个token到达，停止加载动画
+                    loading.stop()
+                    print("\r🤖 AI助手: ", end="", flush=True)
+                    first_token = False
 
-            # 显示Token使用情况（调试模式）
-            if self._settings.debug:
-                summary = self._agent.get_history_summary()
-                print(f"[调试] 已使用 {summary['total_tokens']} tokens")
-                print()
+                # 实时显示内容
+                print(chunk, end="", flush=True)
+                full_response += chunk
+
+            # 流式输出完成
+            if first_token:
+                # 没有收到任何内容
+                loading.stop()
+                print("❌ 未收到任何响应")
+                return False
+
+            # 换行
+            print()
+            print()
+
+            # 显示统计信息
+            elapsed = time.time() - start_time
+            summary = self._agent.get_history_summary()
+            print(f"⏱️  耗时: {elapsed:.2f}秒 | 📊 Token: {summary['total_tokens']}")
+            print()
+
+            return True
+
+        except KeyboardInterrupt:
+            # 用户中断
+            loading.stop()
+            print()
+            print("\n⚠️  已中断请求")
+            print()
+            return False
 
         except Exception as e:
+            loading.stop()
             print()
-            print(f"❌ 错误: {e}")
+            print(f"\n❌ 错误: {e}")
             if self._settings.debug:
                 import traceback
 
                 traceback.print_exc()
             print()
+            return False
+
+    def _chat(self, user_message: str):
+        """
+        进行对话（默认使用流式输出）
+
+        Args:
+            user_message: 用户消息
+        """
+        # 默认使用流式输出，体验更好
+        self._chat_stream(user_message)
 
     def run(self):
         """运行命令行界面"""
