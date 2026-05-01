@@ -1,6 +1,5 @@
 """
-硅基流动API客户端
-使用requests库实现与硅基流动API的交互
+硅基流动 Provider 实现
 """
 
 import json
@@ -11,186 +10,29 @@ from typing import List, Optional, Dict, Any, Iterator
 import requests
 
 from config.settings import Settings, get_settings
+from provider.base import (
+    LLMProvider,
+    Message,
+    Usage,
+    ChatCompletionChoice,
+    ChatCompletionResponse,
+    ChatCompletionRequest,
+    APIError,
+    NetworkError,
+    AuthenticationError,
+    RateLimitError,
+    ModelNotFoundError,
+)
 
 
-@dataclass
-class Message:
-    """消息对象"""
+class SiliconFlowProvider(LLMProvider):
+    """
+    硅基流动 LLM Provider 实现
 
-    role: str  # "system", "user", "assistant"
-    content: str
-    name: Optional[str] = None
+    完全兼容 OpenAI API 格式
+    """
 
-    def to_dict(self) -> Dict[str, Any]:
-        """转换为字典"""
-        data = {"role": self.role, "content": self.content}
-        if self.name:
-            data["name"] = self.name
-        return data
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Message":
-        """从字典创建"""
-        return cls(
-            role=data.get("role", "user"),
-            content=data.get("content", ""),
-            name=data.get("name"),
-        )
-
-
-@dataclass
-class Usage:
-    """Token使用情况"""
-
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
-    total_tokens: int = 0
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "prompt_tokens": self.prompt_tokens,
-            "completion_tokens": self.completion_tokens,
-            "total_tokens": self.total_tokens,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Usage":
-        return cls(
-            prompt_tokens=data.get("prompt_tokens", 0),
-            completion_tokens=data.get("completion_tokens", 0),
-            total_tokens=data.get("total_tokens", 0),
-        )
-
-
-@dataclass
-class ChatCompletionChoice:
-    """对话完成选项"""
-
-    index: int = 0
-    message: Message = field(default_factory=lambda: Message(role="assistant", content=""))
-    finish_reason: Optional[str] = None
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "index": self.index,
-            "message": self.message.to_dict(),
-            "finish_reason": self.finish_reason,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ChatCompletionChoice":
-        message_data = data.get("message", {})
-        return cls(
-            index=data.get("index", 0),
-            message=Message.from_dict(message_data),
-            finish_reason=data.get("finish_reason"),
-        )
-
-
-@dataclass
-class ChatCompletionResponse:
-    """对话完成响应"""
-
-    id: str = ""
-    object: str = "chat.completion"
-    created: int = 0
-    model: str = ""
-    choices: List[ChatCompletionChoice] = field(default_factory=list)
-    usage: Usage = field(default_factory=Usage)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "object": self.object,
-            "created": self.created,
-            "model": self.model,
-            "choices": [c.to_dict() for c in self.choices],
-            "usage": self.usage.to_dict(),
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ChatCompletionResponse":
-        choices_data = data.get("choices", [])
-        choices = [ChatCompletionChoice.from_dict(c) for c in choices_data]
-        usage_data = data.get("usage", {})
-
-        return cls(
-            id=data.get("id", ""),
-            object=data.get("object", "chat.completion"),
-            created=data.get("created", 0),
-            model=data.get("model", ""),
-            choices=choices,
-            usage=Usage.from_dict(usage_data),
-        )
-
-    @property
-    def content(self) -> str:
-        """获取第一个选择的消息内容"""
-        if self.choices:
-            return self.choices[0].message.content
-        return ""
-
-
-@dataclass
-class ChatCompletionRequest:
-    """对话完成请求"""
-
-    model: str
-    messages: List[Message]
-    temperature: float = 0.7
-    max_tokens: int = 4096
-    top_p: float = 1.0
-    frequency_penalty: float = 0.0
-    presence_penalty: float = 0.0
-    stream: bool = False
-    stop: Optional[List[str]] = None
-
-    def to_dict(self) -> Dict[str, Any]:
-        """转换为API请求格式"""
-        data = {
-            "model": self.model,
-            "messages": [m.to_dict() for m in self.messages],
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-            "top_p": self.top_p,
-            "frequency_penalty": self.frequency_penalty,
-            "presence_penalty": self.presence_penalty,
-            "stream": self.stream,
-        }
-        if self.stop:
-            data["stop"] = self.stop
-        return data
-
-
-class APIError(Exception):
-    """API错误"""
-
-    def __init__(self, message: str, status_code: int = None, response: Dict = None):
-        super().__init__(message)
-        self.status_code = status_code
-        self.response = response
-
-
-class NetworkError(APIError):
-    """网络错误"""
-
-    pass
-
-
-class AuthenticationError(APIError):
-    """认证错误"""
-
-    pass
-
-
-class RateLimitError(APIError):
-    """速率限制错误"""
-
-    pass
-
-
-class SiliconFlowClient:
-    """硅基流动API客户端"""
+    _provider_name: str = "siliconflow"
 
     def __init__(
         self,
@@ -200,11 +42,11 @@ class SiliconFlowClient:
         settings: Settings = None,
     ):
         """
-        初始化客户端
+        初始化硅基流动 Provider
 
         Args:
-            api_key: API密钥，如果不提供则从配置读取
-            base_url: API基础URL，如果不提供则从配置读取
+            api_key: API 密钥，如果不提供则从配置读取
+            base_url: API 基础 URL，如果不提供则从配置读取
             default_model: 默认模型，如果不提供则从配置读取
             settings: 配置实例，如果不提供则使用全局配置
         """
@@ -212,13 +54,11 @@ class SiliconFlowClient:
 
         self.api_key = api_key or self._settings.siliconflow_api_key
         self.base_url = base_url or self._settings.siliconflow_base_url
-        self.default_model = default_model or self._settings.siliconflow_model
+        self._default_model = default_model or self._settings.siliconflow_model
 
-        # 确保base_url不以斜杠结尾
         if self.base_url.endswith("/"):
             self.base_url = self.base_url[:-1]
 
-        # 创建HTTP会话
         self._session = requests.Session()
         self._session.headers.update(
             {
@@ -226,6 +66,30 @@ class SiliconFlowClient:
                 "Content-Type": "application/json",
             }
         )
+
+    @property
+    def provider_name(self) -> str:
+        return self._provider_name
+
+    @property
+    def default_model(self) -> str:
+        return self._default_model
+
+    @default_model.setter
+    def default_model(self, value: str):
+        """设置默认模型"""
+        self._default_model = value
+
+    @property
+    def base_url(self) -> str:
+        return self._base_url
+
+    @base_url.setter
+    def base_url(self, value: str):
+        """设置基础 URL"""
+        if value.endswith("/"):
+            value = value[:-1]
+        self._base_url = value
 
     def _request(
         self,
@@ -237,24 +101,25 @@ class SiliconFlowClient:
         retry_delay: float = None,
     ) -> Dict[str, Any]:
         """
-        发送HTTP请求（带重试机制）
+        发送 HTTP 请求（带重试机制）
 
         Args:
-            method: HTTP方法（GET, POST等）
-            endpoint: API端点（不包含base_url）
+            method: HTTP 方法（GET, POST 等）
+            endpoint: API 端点（不包含 base_url）
             data: 请求数据
             timeout: 超时时间（秒）
             max_retries: 最大重试次数
             retry_delay: 重试延迟（秒）
 
         Returns:
-            API响应数据
+            API 响应数据
 
         Raises:
-            APIError: API调用错误
+            APIError: API 调用错误
             NetworkError: 网络错误
             AuthenticationError: 认证错误
             RateLimitError: 速率限制错误
+            ModelNotFoundError: 模型不存在错误
         """
         timeout = timeout or self._settings.request_timeout
         max_retries = max_retries or self._settings.max_retries
@@ -278,11 +143,9 @@ class SiliconFlowClient:
                         timeout=timeout,
                     )
 
-                # 检查响应状态码
                 if response.status_code == 200:
                     return response.json()
 
-                # 处理错误响应
                 error_data = {}
                 try:
                     error_data = response.json()
@@ -293,15 +156,21 @@ class SiliconFlowClient:
                     "message", f"HTTP {response.status_code}"
                 )
 
-                # 根据状态码分类错误
                 if response.status_code == 401:
                     raise AuthenticationError(
                         f"认证失败: {error_message}",
                         status_code=response.status_code,
                         response=error_data,
+                        provider=self._provider_name,
+                    )
+                elif response.status_code == 404:
+                    raise ModelNotFoundError(
+                        f"模型不存在: {error_message}",
+                        status_code=response.status_code,
+                        response=error_data,
+                        provider=self._provider_name,
                     )
                 elif response.status_code == 429:
-                    # 速率限制，可能需要重试
                     if attempt < max_retries:
                         wait_time = retry_delay * (attempt + 1)
                         time.sleep(wait_time)
@@ -310,9 +179,9 @@ class SiliconFlowClient:
                         f"速率限制: {error_message}",
                         status_code=response.status_code,
                         response=error_data,
+                        provider=self._provider_name,
                     )
                 elif response.status_code >= 500:
-                    # 服务器错误，可以重试
                     if attempt < max_retries:
                         wait_time = retry_delay * (attempt + 1)
                         time.sleep(wait_time)
@@ -321,17 +190,17 @@ class SiliconFlowClient:
                         f"服务器错误: {error_message}",
                         status_code=response.status_code,
                         response=error_data,
+                        provider=self._provider_name,
                     )
                 else:
-                    # 其他错误，不重试
                     raise APIError(
-                        f"API错误: {error_message}",
+                        f"API 错误: {error_message}",
                         status_code=response.status_code,
                         response=error_data,
+                        provider=self._provider_name,
                     )
 
             except requests.exceptions.RequestException as e:
-                # 网络错误，可以重试
                 last_error = e
                 if attempt < max_retries:
                     wait_time = retry_delay * (attempt + 1)
@@ -341,14 +210,15 @@ class SiliconFlowClient:
                     f"网络错误: {str(e)}",
                     status_code=None,
                     response=None,
+                    provider=self._provider_name,
                 ) from e
 
-        # 如果所有重试都失败
         if last_error:
             raise NetworkError(
-                f"网络错误（重试{max_retries}次后失败）: {str(last_error)}"
+                f"网络错误（重试 {max_retries} 次后失败）: {str(last_error)}",
+                provider=self._provider_name,
             ) from last_error
-        raise APIError("请求失败，未知错误")
+        raise APIError("请求失败，未知错误", provider=self._provider_name)
 
     def chat(
         self,
@@ -356,6 +226,7 @@ class SiliconFlowClient:
         model: str = None,
         temperature: float = None,
         max_tokens: int = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
         **kwargs,
     ) -> ChatCompletionResponse:
         """
@@ -363,30 +234,29 @@ class SiliconFlowClient:
 
         Args:
             messages: 消息列表
-            model: 模型名称（可选，默认使用配置中的模型）
+            model: 模型名称（可选）
             temperature: 生成温度（可选）
-            max_tokens: 最大生成Token数（可选）
+            max_tokens: 最大生成 Token 数（可选）
+            tools: 可用工具列表（可选）
             **kwargs: 其他参数
 
         Returns:
             ChatCompletionResponse 响应对象
-
-        Example:
-            >>> from llm import SiliconFlowClient, Message
-            >>> client = SiliconFlowClient()
-            >>> messages = [Message(role="user", content="你好")]
-            >>> response = client.chat(messages)
-            >>> print(response.content)
         """
-        model = model or self.default_model
-        temperature = temperature if temperature is not None else self._settings.temperature
-        max_tokens = max_tokens if max_tokens is not None else self._settings.max_tokens
+        model = model or self._default_model
+        temperature = (
+            temperature if temperature is not None else self._settings.temperature
+        )
+        max_tokens = (
+            max_tokens if max_tokens is not None else self._settings.max_tokens
+        )
 
         request = ChatCompletionRequest(
             model=model,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
+            tools=tools,
             **kwargs,
         )
 
@@ -398,44 +268,13 @@ class SiliconFlowClient:
 
         return ChatCompletionResponse.from_dict(response_data)
 
-    def chat_single(
-        self,
-        user_message: str,
-        system_prompt: str = None,
-        model: str = None,
-        **kwargs,
-    ) -> ChatCompletionResponse:
-        """
-        简单的单轮对话
-
-        Args:
-            user_message: 用户消息
-            system_prompt: 系统提示（可选）
-            model: 模型名称（可选）
-            **kwargs: 其他参数
-
-        Returns:
-            ChatCompletionResponse 响应对象
-
-        Example:
-            >>> response = client.chat_single("你好")
-            >>> print(response.content)
-        """
-        messages = []
-
-        if system_prompt:
-            messages.append(Message(role="system", content=system_prompt))
-
-        messages.append(Message(role="user", content=user_message))
-
-        return self.chat(messages, model=model, **kwargs)
-
     def chat_stream(
         self,
         messages: List[Message],
         model: str = None,
         temperature: float = None,
         max_tokens: int = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
         **kwargs,
     ) -> Iterator[str]:
         """
@@ -445,20 +284,20 @@ class SiliconFlowClient:
             messages: 消息列表
             model: 模型名称
             temperature: 生成温度
-            max_tokens: 最大生成Token数
+            max_tokens: 最大生成 Token 数
+            tools: 可用工具列表（可选）
             **kwargs: 其他参数
 
         Yields:
             每次返回的内容片段
-
-        Note:
-            这是一个简化的流式实现，实际使用时可能需要更完善的SSE解析
         """
-        import time
-
-        model = model or self.default_model
-        temperature = temperature if temperature is not None else self._settings.temperature
-        max_tokens = max_tokens if max_tokens is not None else self._settings.max_tokens
+        model = model or self._default_model
+        temperature = (
+            temperature if temperature is not None else self._settings.temperature
+        )
+        max_tokens = (
+            max_tokens if max_tokens is not None else self._settings.max_tokens
+        )
 
         request = ChatCompletionRequest(
             model=model,
@@ -466,6 +305,7 @@ class SiliconFlowClient:
             temperature=temperature,
             max_tokens=max_tokens,
             stream=True,
+            tools=tools,
             **kwargs,
         )
 
@@ -476,8 +316,8 @@ class SiliconFlowClient:
             "Accept": "text/event-stream",
         }
 
-        # 流式输出使用更长的超时时间
-        stream_timeout = getattr(self._settings, 'stream_timeout', 120)
+        stream_timeout = getattr(self._settings, "stream_timeout", 120)
+        first_token_timeout = getattr(self._settings, "first_token_timeout", 30)
 
         try:
             response = self._session.post(
@@ -488,47 +328,63 @@ class SiliconFlowClient:
                 timeout=stream_timeout,
             )
 
-            # 检查HTTP状态码
             if response.status_code == 401:
                 error_data = {}
                 try:
                     error_data = response.json()
-                except:
+                except Exception:
                     pass
-                error_msg = error_data.get('error', {}).get('message', '认证失败')
+                error_msg = error_data.get("error", {}).get("message", "认证失败")
                 raise AuthenticationError(
                     f"认证失败: {error_msg}",
                     status_code=401,
                     response=error_data,
+                    provider=self._provider_name,
+                )
+            elif response.status_code == 404:
+                error_data = {}
+                try:
+                    error_data = response.json()
+                except Exception:
+                    pass
+                error_msg = error_data.get("error", {}).get("message", "模型不存在")
+                raise ModelNotFoundError(
+                    f"模型不存在: {error_msg}",
+                    status_code=404,
+                    response=error_data,
+                    provider=self._provider_name,
                 )
             elif response.status_code == 429:
                 error_data = {}
                 try:
                     error_data = response.json()
-                except:
+                except Exception:
                     pass
-                error_msg = error_data.get('error', {}).get('message', '请求过于频繁')
+                error_msg = error_data.get("error", {}).get("message", "请求过于频繁")
                 raise RateLimitError(
                     f"速率限制: {error_msg}",
                     status_code=429,
                     response=error_data,
+                    provider=self._provider_name,
                 )
             elif response.status_code >= 400:
                 error_data = {}
                 try:
                     error_data = response.json()
-                except:
+                except Exception:
                     pass
-                error_msg = error_data.get('error', {}).get('message', f'HTTP {response.status_code}')
+                error_msg = error_data.get("error", {}).get(
+                    "message", f"HTTP {response.status_code}"
+                )
                 raise APIError(
-                    f"API错误: {error_msg}",
+                    f"API 错误: {error_msg}",
                     status_code=response.status_code,
                     response=error_data,
+                    provider=self._provider_name,
                 )
 
             first_token = True
             start_time = time.time()
-            first_token_timeout = getattr(self._settings, 'first_token_timeout', 30)
 
             for line in response.iter_lines():
                 if not line:
@@ -556,21 +412,17 @@ class SiliconFlowClient:
                     choice = choices[0]
                     finish_reason = choice.get("finish_reason")
 
-                    # 检查是否结束
                     if finish_reason == "stop" or finish_reason == "length":
-                        # 检查是否还有最后的content
                         delta = choice.get("delta", {})
                         content = delta.get("content", "")
                         if content:
                             yield content
                         break
 
-                    # 提取内容
                     delta = choice.get("delta", {})
                     content = delta.get("content", "")
 
                     if content:
-                        # 第一个token到达
                         if first_token:
                             first_token = False
                         yield content
@@ -578,24 +430,25 @@ class SiliconFlowClient:
                 except json.JSONDecodeError:
                     continue
 
-            # 检查是否收到了任何内容
             if first_token:
                 elapsed = time.time() - start_time
                 raise APIError(
                     f"未收到任何响应内容（等待了 {elapsed:.1f} 秒），"
                     f"模型 {model} 可能响应较慢，请尝试增加超时时间 "
-                    f"或使用其他模型。"
+                    f"或使用其他模型。",
+                    provider=self._provider_name,
                 )
 
         except requests.exceptions.Timeout:
-            elapsed = time.time() - start_time if 'start_time' in dir() else 0
+            elapsed = time.time() - start_time if "start_time" in dir() else 0
             raise APIError(
                 f"请求超时（已等待 {elapsed:.1f} 秒）。"
-                f"如果使用的是响应较慢的模型（如Qwen-4B），"
-                f"请尝试增加 STREAM_TIMEOUT 环境变量的值。"
+                f"如果使用的是响应较慢的模型（如 Qwen-4B），"
+                f"请尝试增加 STREAM_TIMEOUT 环境变量的值。",
+                provider=self._provider_name,
             )
         except requests.exceptions.RequestException as e:
-            raise NetworkError(f"网络错误: {str(e)}") from e
+            raise NetworkError(f"网络错误: {str(e)}", provider=self._provider_name) from e
 
     def list_models(self) -> List[Dict[str, Any]]:
         """
@@ -610,8 +463,8 @@ class SiliconFlowClient:
         )
         return response_data.get("data", [])
 
-    def close(self):
-        """关闭HTTP会话"""
+    def close(self) -> None:
+        """关闭 HTTP 会话"""
         self._session.close()
 
     def __enter__(self):
