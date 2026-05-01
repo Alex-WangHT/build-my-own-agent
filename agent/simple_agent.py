@@ -8,7 +8,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import List, Optional, Dict, Any, Iterator
+from typing import List, Optional, Dict, Any, Iterator, Callable
 
 from config.settings import Settings, get_settings
 from llm.client import (
@@ -311,6 +311,10 @@ class ReActAgent:
         user_message: str,
         temperature: float = None,
         max_tokens: int = None,
+        on_thought: Callable[[str], None] = None,
+        on_action: Callable[[str, Dict[str, Any]], None] = None,
+        on_observation: Callable[[str, str], None] = None,
+        on_final_answer: Callable[[str], None] = None,
         **kwargs,
     ) -> str:
         """
@@ -320,6 +324,10 @@ class ReActAgent:
             user_message: 用户消息
             temperature: 生成温度
             max_tokens: 最大生成Token数
+            on_thought: 回调函数，当LLM输出思考内容时调用，参数为思考内容
+            on_action: 回调函数，当检测到Action时调用，参数为(action_name, action_input)
+            on_observation: 回调函数，当工具执行完成时调用，参数为(action_name, observation)
+            on_final_answer: 回调函数，当找到Final Answer时调用，参数为最终答案
             **kwargs: 其他参数
 
         Returns:
@@ -353,9 +361,14 @@ class ReActAgent:
                 self._conversation.add_assistant_message(assistant_message)
                 logger.debug(f"LLM response: {assistant_message[:200] if len(assistant_message) > 200 else assistant_message}")
 
+                if on_thought:
+                    on_thought(assistant_message)
+
                 final_answer = self._parse_final_answer(assistant_message)
                 if final_answer:
                     logger.info(f"Final answer found after {iterations} iterations")
+                    if on_final_answer:
+                        on_final_answer(final_answer)
                     return final_answer
 
                 action_info = self._parse_action(assistant_message)
@@ -363,7 +376,13 @@ class ReActAgent:
                     action = action_info["action"]
                     action_input = action_info["action_input"]
 
+                    if on_action:
+                        on_action(action, action_input)
+
                     observation = self._execute_tool(action, action_input)
+
+                    if on_observation:
+                        on_observation(action, observation)
 
                     observation_message = f"Observation: {observation}"
                     self._conversation.add_user_message(observation_message)
@@ -372,7 +391,10 @@ class ReActAgent:
                 else:
                     logger.warning("No Action or Final Answer found in response, continuing...")
                     if "Final Answer" in assistant_message:
-                        return assistant_message.split("Final Answer:")[-1].strip()
+                        final_answer = assistant_message.split("Final Answer:")[-1].strip()
+                        if on_final_answer:
+                            on_final_answer(final_answer)
+                        return final_answer
 
             except Exception as e:
                 logger.exception(f"Error in ReAct iteration: {e}")
@@ -387,6 +409,10 @@ class ReActAgent:
         user_message: str,
         temperature: float = None,
         max_tokens: int = None,
+        on_thought: Callable[[str], None] = None,
+        on_action: Callable[[str, Dict[str, Any]], None] = None,
+        on_observation: Callable[[str, str], None] = None,
+        on_final_answer: Callable[[str], None] = None,
         **kwargs,
     ) -> Iterator[str]:
         """
@@ -396,6 +422,10 @@ class ReActAgent:
             user_message: 用户消息
             temperature: 生成温度
             max_tokens: 最大生成Token数
+            on_thought: 回调函数，当LLM输出思考内容时调用，参数为思考内容
+            on_action: 回调函数，当检测到Action时调用，参数为(action_name, action_input)
+            on_observation: 回调函数，当工具执行完成时调用，参数为(action_name, observation)
+            on_final_answer: 回调函数，当找到Final Answer时调用，参数为最终答案
             **kwargs: 其他参数
 
         Yields:
@@ -407,6 +437,10 @@ class ReActAgent:
             user_message=user_message,
             temperature=temperature,
             max_tokens=max_tokens,
+            on_thought=on_thought,
+            on_action=on_action,
+            on_observation=on_observation,
+            on_final_answer=on_final_answer,
             **kwargs,
         )
 

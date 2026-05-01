@@ -4,6 +4,7 @@ ReAct Agent 测试脚本
 演示如何使用ReAct方式的对话Agent
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -13,6 +14,59 @@ sys.path.insert(0, str(project_root))
 from dotenv import load_dotenv
 
 load_dotenv()
+
+
+class Color:
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    
+    BLACK = "\033[30m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+    WHITE = "\033[37m"
+    
+    BG_BLACK = "\033[40m"
+    BG_RED = "\033[41m"
+    BG_GREEN = "\033[42m"
+    BG_YELLOW = "\033[43m"
+    BG_BLUE = "\033[44m"
+    BG_MAGENTA = "\033[45m"
+    BG_CYAN = "\033[46m"
+    BG_WHITE = "\033[47m"
+
+
+def print_thought(text: str):
+    """显示思考内容"""
+    print(f"\n{Color.DIM}💭 Thought:{Color.RESET}")
+    for line in text.split('\n'):
+        if line.strip():
+            print(f"   {Color.DIM}{line}{Color.RESET}")
+
+
+def print_action(action: str, action_input: dict):
+    """显示Action（工具调用）"""
+    print(f"\n{Color.CYAN}🔧 Action: {Color.BOLD}{action}{Color.RESET}")
+    print(f"   {Color.CYAN}Input: {json.dumps(action_input, ensure_ascii=False, indent=2)}{Color.RESET}")
+    print(f"   {Color.YELLOW}正在执行工具...{Color.RESET}")
+
+
+def print_observation(action: str, observation: str):
+    """显示Observation（工具执行结果）"""
+    print(f"\n{Color.GREEN}👁️ Observation ({action}):{Color.RESET}")
+    for line in observation.split('\n'):
+        if line.strip():
+            print(f"   {Color.GREEN}{line}{Color.RESET}")
+
+
+def print_final_answer(answer: str):
+    """显示最终答案"""
+    print(f"\n{Color.BOLD}{Color.YELLOW}✨ Final Answer:{Color.RESET}")
+    print(f"   {Color.BOLD}{answer}{Color.RESET}")
 
 
 def test_react_agent():
@@ -137,6 +191,7 @@ def interactive_mode():
 
     print("\n" + "=" * 60)
     print("ReAct Agent 交互式模式")
+    print(f"模型: {settings.siliconflow_model}")
     print("输入 /quit 或 /exit 退出")
     print("输入 /clear 清空对话历史")
     print("输入 /tools 查看可用工具")
@@ -145,7 +200,7 @@ def interactive_mode():
     with ReActAgent(settings=settings) as agent:
         while True:
             try:
-                user_input = input("\n你: ")
+                user_input = input(f"\n{Color.BOLD}👤 你: {Color.RESET}")
 
                 if user_input.lower() in ["/quit", "/exit"]:
                     print("再见！")
@@ -157,24 +212,29 @@ def interactive_mode():
                     continue
 
                 if user_input.lower() == "/tools":
-                    print("\n可用工具:")
+                    print(f"\n{Color.BOLD}🔧 可用工具:{Color.RESET}")
                     for tool in agent.list_tools():
-                        print(f"  - {tool['name']}: {tool['description']}")
+                        print(f"  - {Color.CYAN}{tool['name']}{Color.RESET}: {tool['description']}")
                     continue
 
                 if not user_input.strip():
                     continue
 
-                print("🤔 思考中...")
+                print(f"\n{Color.YELLOW}🤔 思考中...{Color.RESET}")
 
-                response = agent.chat(user_input)
-                print(f"\nAI: {response}")
+                response = agent.chat(
+                    user_input,
+                    on_thought=print_thought,
+                    on_action=print_action,
+                    on_observation=print_observation,
+                    on_final_answer=print_final_answer,
+                )
 
             except KeyboardInterrupt:
                 print("\n\n再见！")
                 break
             except Exception as e:
-                print(f"\n错误: {e}")
+                print(f"\n{Color.RED}❌ 错误: {e}{Color.RESET}")
                 import traceback
                 traceback.print_exc()
 
