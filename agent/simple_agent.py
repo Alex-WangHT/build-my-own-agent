@@ -21,6 +21,22 @@ from llm.client import (
 )
 from tools.tool import Tool, ToolRegistry, default_registry
 
+try:
+    from agent.io.base import (
+        AgentIO,
+        ThoughtEvent,
+        ActionEvent,
+        ObservationEvent,
+        FinalAnswerEvent,
+        TokenStatsEvent,
+        SystemEvent,
+        ErrorEvent,
+    )
+    from agent.io.adapter import NoopIO
+    IO_AVAILABLE = True
+except ImportError:
+    IO_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -272,6 +288,7 @@ class ReActAgent:
         settings: Settings = None,
         tool_registry: ToolRegistry = None,
         max_iterations: int = 10,
+        io: "AgentIO" = None,
     ):
         """
         初始化ReAct Agent
@@ -282,11 +299,17 @@ class ReActAgent:
             settings: 配置实例
             tool_registry: 工具注册表（如果不提供则使用默认注册表）
             max_iterations: 最大迭代次数，防止无限循环
+            io: IO 适配器，用于与外部交互（TUI/Gateway等）
         """
         self._settings = settings or get_settings()
         self._model = model or self._settings.siliconflow_model
         self._tool_registry = tool_registry or default_registry
         self._max_iterations = max_iterations
+
+        if IO_AVAILABLE:
+            self._io = io or NoopIO()
+        else:
+            self._io = None
 
         self._client = SiliconFlowClient(settings=self._settings)
         self._conversation = Conversation()
@@ -303,6 +326,20 @@ class ReActAgent:
 
         logger.info(f"ReActAgent initialized with model: {self._model}")
         logger.info(f"Registered tools: {[t.name for t in self._tool_registry.list_tools()]}")
+        if self._io and IO_AVAILABLE:
+            logger.info(f"Using IO adapter: {type(self._io).__name__}")
+
+    @property
+    def io(self) -> "AgentIO":
+        """获取当前 IO 适配器"""
+        return self._io
+
+    @io.setter
+    def io(self, value: "AgentIO"):
+        """设置 IO 适配器"""
+        if IO_AVAILABLE:
+            self._io = value
+            logger.info(f"IO adapter changed to: {type(value).__name__}")
 
     @property
     def conversation(self) -> Conversation:
@@ -479,6 +516,16 @@ class ReActAgent:
         """
         logger.debug(f"User message: {user_message[:100]}...")
 
+        if IO_AVAILABLE and self._io:
+            self._io.on_thought(ThoughtEvent(content=f"用户输入: {user_message[:50]}{'...' if len(user_message) > 50 else ''}"))
+
+        initial_token_stats = self._conversation.token_stats
+        initial_prompt = initial_token_stats.prompt_tokens
+        initial_completion = initial_token_stats.completion_tokens
+        initial_total = initial_token_stats.total_tokens
+
+        estimated_context = self.estimate_context_tokens()
+
         self._conversation.add_user_message(user_message)
 
         iterations = 0
@@ -511,6 +558,9 @@ class ReActAgent:
                 if on_thought:
                     on_thought(assistant_message)
 
+                if IO_AVAILABLE and self._io:
+                    self._io.on_thought(ThoughtEvent(content=assistant_message))
+
                 action_info = self._parse_action(assistant_message)
                 if action_info:
                     action = action_info["action"]
@@ -519,10 +569,16 @@ class ReActAgent:
                     if on_action:
                         on_action(action, action_input)
 
+                    if IO_AVAILABLE and self._io:
+                        self._io.on_action(ActionEvent(action=action, action_input=action_input))
+
                     observation = self._execute_tool(action, action_input)
 
                     if on_observation:
                         on_observation(action, observation)
+
+                    if IO_AVAILABLE and self._io:
+                        self._io.on_observation(ObservationEvent(action=action, observation=observation))
 
                     observation_message = f"Observation: {observation}"
                     self._conversation.add_user_message(observation_message)
@@ -534,6 +590,27 @@ class ReActAgent:
                         logger.info(f"Final answer found after {iterations} iterations")
                         if on_final_answer:
                             on_final_answer(final_answer)
+
+                        if IO_AVAILABLE and self._io:
+                            self._io.on_final_answer(FinalAnswerEvent(answer=final_answer))
+
+                            final_token_stats = self._conversation.token_stats
+                            round_prompt = final_token_stats.prompt_tokens - initial_prompt
+                            round_completion = final_token_stats.completion_tokens - initial_completion
+                            round_total = final_token_stats.total_tokens - initial_total
+
+                            token_event = TokenStatsEvent(
+                                estimated_context=estimated_context,
+                                round_prompt=round_prompt,
+                                round_completion=round_completion,
+                                round_total=round_total,
+                                total_prompt=final_token_stats.prompt_tokens,
+                                total_completion=final_token_stats.completion_tokens,
+                                total_tokens=final_token_stats.total_tokens,
+                                elapsed_seconds=0.0,
+                            )
+                            self._io.on_token_stats(token_event)
+
                         return final_answer
 
                     logger.warning("No Action or Final Answer found in response, continuing...")
@@ -541,14 +618,32 @@ class ReActAgent:
                         final_answer = assistant_message.split("Final Answer:")[-1].strip()
                         if on_final_answer:
                             on_final_answer(final_answer)
+
+                        if IO_AVAILABLE and self._io:
+                            self._io.on_final_answer(FinalAnswerEvent(answer=final_answer))
+
                         return final_answer
 
             except Exception as e:
                 logger.exception(f"Error in ReAct iteration: {e}")
+
+                if IO_AVAILABLE and self._io:
+                    import traceback
+                    error_event = ErrorEvent(
+                        error_message=str(e),
+                        error_type=type(e).__name__,
+                        details={"traceback": traceback.format_exc()},
+                    )
+                    self._io.on_error(error_event)
+
                 raise
 
         max_iter_msg = f"已达到最大迭代次数 ({self._max_iterations})，无法完成推理。请尝试简化问题或增加max_iterations。"
         logger.warning(max_iter_msg)
+
+        if IO_AVAILABLE and self._io:
+            self._io.on_system(SystemEvent(message=max_iter_msg, level="warning"))
+
         return max_iter_msg
 
     def chat_stream(
