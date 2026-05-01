@@ -80,17 +80,6 @@ def test_react_agent():
             print(f"\n错误: {e}")
 
         print("\n" + "=" * 60)
-        print("测试 5: 复杂问题 - 多步计算")
-        print("=" * 60)
-
-        agent.clear_history()
-        try:
-            response = agent.chat("如果一个人有100元，买了3个苹果，每个苹果5元，然后又买了2个橙子，每个橙子8元，最后还剩多少钱？请一步步计算。")
-            print(f"\n答案: {response}")
-        except Exception as e:
-            print(f"\n错误: {e}")
-
-        print("\n" + "=" * 60)
         print("测试完成！")
         print("=" * 60)
 
