@@ -122,21 +122,38 @@ class ChatInterface:
         token_summary = self._token_tracker.get_summary()
         total_stats = self._agent.get_token_stats()
 
+        estimated_context = token_summary["estimated_context"]
+        round_prompt = token_summary["round_prompt"]
+        round_completion = token_summary["round_completion"]
+        round_total = token_summary["round_total"]
+
         print()
         print(self._theme.style_muted("=" * 60))
         print(self._theme.style_info(f"{symbols.stats} Token统计（本轮对话）:"))
         print(self._theme.style_muted("-" * 40))
-        print(f"   {self._theme.style_token_estimate(f'上下文估计: {token_summary[\"estimated_context\"]} tokens')}")
+
+        estimate_text = f"上下文估计: {estimated_context} tokens"
+        print(f"   {self._theme.style_token_estimate(estimate_text)}")
         print(f"   {self._theme.style_info('本轮消耗:')}")
-        print(f"      {self._theme.style_token_prompt(f'Prompt: {token_summary[\"round_prompt\"]} tokens')}")
-        print(f"      {self._theme.style_token_completion(f'Completion: {token_summary[\"round_completion\"]} tokens')}")
-        print(f"      {self._theme.style_token_total(f'Total: {token_summary[\"round_total\"]} tokens')}")
+
+        prompt_text = f"Prompt: {round_prompt} tokens"
+        print(f"      {self._theme.style_token_prompt(prompt_text)}")
+
+        completion_text = f"Completion: {round_completion} tokens"
+        print(f"      {self._theme.style_token_completion(completion_text)}")
+
+        total_text = f"Total: {round_total} tokens"
+        print(f"      {self._theme.style_token_total(total_text)}")
+
         print()
         print(self._theme.style_info(f"{symbols.stats} 累计统计:"))
         print(self._theme.style_muted("-" * 40))
         print(f"   累计 Prompt: {total_stats.prompt_tokens} tokens")
         print(f"   累计 Completion: {total_stats.completion_tokens} tokens")
-        print(f"   {self._theme.style_token_total(f'累计 Total: {total_stats.total_tokens} tokens')}")
+
+        total_all_text = f"累计 Total: {total_stats.total_tokens} tokens"
+        print(f"   {self._theme.style_token_total(total_all_text)}")
+
         print()
         print(f"{symbols.clock} 本轮耗时: {elapsed:.2f}秒")
         print(self._theme.style_muted("=" * 60))

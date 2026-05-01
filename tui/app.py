@@ -24,8 +24,8 @@ from agent.io.base import (
     ErrorEvent,
 )
 from config.settings import get_settings, Settings
-from tui.themes.base import Theme, get_theme, Color
-from tui.themes.registry import list_themes, ThemeRegistry
+from tui.themes.base import Theme, Color
+from tui.themes.registry import list_themes, get_theme, ThemeRegistry
 from tui.components.splash import SplashScreen
 from tui.io.tui_adapter import TUIIO
 
