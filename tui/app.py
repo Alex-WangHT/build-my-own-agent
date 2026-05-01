@@ -1,16 +1,34 @@
 """
 简单命令行界面
 使用Python基本的input()和print()实现，方便测试
+支持ReAct工具调用和Token统计
 """
 
+import json
 import sys
 import threading
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
-from agent.simple_agent import SimpleAgent
+from agent.simple_agent import ReActAgent, estimate_messages_tokens
 from config.settings import get_settings, Settings
+
+
+class Color:
+    """终端颜色常量"""
+    RESET = "\033[0m"
+    BOLD = "\033[1m"
+    DIM = "\033[2m"
+    
+    BLACK = "\033[30m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+    WHITE = "\033[37m"
 
 
 class LoadingAnimation:
@@ -49,8 +67,47 @@ class LoadingAnimation:
         if self._thread:
             self._thread.join(timeout=1.0)
         if clear:
-            # 清除动画行，使用足够多的空格覆盖
             print("\r" + " " * (len(self.message) + 10), end="\r", flush=True)
+
+
+class TokenTracker:
+    """Token追踪器，用于跟踪每轮对话的Token使用情况"""
+
+    def __init__(self):
+        self.initial_prompt_tokens = 0
+        self.initial_completion_tokens = 0
+        self.initial_total_tokens = 0
+        self.round_prompt_tokens = 0
+        self.round_completion_tokens = 0
+        self.round_total_tokens = 0
+        self.estimated_context_tokens = 0
+
+    def reset(self, agent: ReActAgent):
+        """重置并记录初始状态"""
+        stats = agent.get_token_stats()
+        self.initial_prompt_tokens = stats.prompt_tokens
+        self.initial_completion_tokens = stats.completion_tokens
+        self.initial_total_tokens = stats.total_tokens
+        self.estimated_context_tokens = agent.estimate_context_tokens()
+        self.round_prompt_tokens = 0
+        self.round_completion_tokens = 0
+        self.round_total_tokens = 0
+
+    def update(self, agent: ReActAgent):
+        """更新本轮统计"""
+        stats = agent.get_token_stats()
+        self.round_prompt_tokens = stats.prompt_tokens - self.initial_prompt_tokens
+        self.round_completion_tokens = stats.completion_tokens - self.initial_completion_tokens
+        self.round_total_tokens = stats.total_tokens - self.initial_total_tokens
+
+    def get_summary(self) -> Dict[str, Any]:
+        """获取本轮统计摘要"""
+        return {
+            "estimated_context": self.estimated_context_tokens,
+            "round_prompt": self.round_prompt_tokens,
+            "round_completion": self.round_completion_tokens,
+            "round_total": self.round_total_tokens,
+        }
 
 
 class SimpleCLI:
@@ -58,17 +115,70 @@ class SimpleCLI:
 
     def __init__(
         self,
-        agent: Optional[SimpleAgent] = None,
+        agent: Optional[ReActAgent] = None,
         settings: Optional[Settings] = None,
     ):
         self._settings = settings or get_settings()
         self._agent = agent
         self._running = False
+        self._token_tracker = TokenTracker()
+
+    def _print_thought(self, text: str):
+        """显示思考内容"""
+        print(f"\n{Color.DIM}💭 Thought:{Color.RESET}")
+        for line in text.split('\n'):
+            if line.strip():
+                print(f"   {Color.DIM}{line}{Color.RESET}")
+
+    def _print_action(self, action: str, action_input: Dict[str, Any]):
+        """显示Action（工具调用）"""
+        print(f"\n{Color.CYAN}🔧 Action: {Color.BOLD}{action}{Color.RESET}")
+        print(f"   {Color.CYAN}Input: {json.dumps(action_input, ensure_ascii=False, indent=2)}{Color.RESET}")
+        print(f"   {Color.YELLOW}正在执行工具...{Color.RESET}")
+
+    def _print_observation(self, action: str, observation: str):
+        """显示Observation（工具执行结果）"""
+        print(f"\n{Color.GREEN}👁️ Observation ({action}):{Color.RESET}")
+        for line in observation.split('\n'):
+            if line.strip():
+                print(f"   {Color.GREEN}{line}{Color.RESET}")
+
+    def _print_final_answer(self, answer: str):
+        """显示最终答案"""
+        print(f"\n{Color.BOLD}{Color.YELLOW}✨ Final Answer:{Color.RESET}")
+        lines = answer.split("\n")
+        for line in lines:
+            print(f"   {Color.BOLD}{line}{Color.RESET}")
+
+    def _print_token_stats(self, elapsed: float):
+        """打印Token统计信息"""
+        token_summary = self._token_tracker.get_summary()
+        total_stats = self._agent.get_token_stats()
+        
+        print()
+        print(f"{Color.DIM}{'='*60}{Color.RESET}")
+        print(f"{Color.BLUE}📊 Token统计（本轮对话）:{Color.RESET}")
+        print(f"{Color.DIM}{'-'*40}{Color.RESET}")
+        print(f"   {Color.CYAN}上下文估计: {token_summary['estimated_context']} tokens{Color.RESET}")
+        print(f"   {Color.MAGENTA}本轮消耗:{Color.RESET}")
+        print(f"      Prompt: {token_summary['round_prompt']} tokens")
+        print(f"      Completion: {token_summary['round_completion']} tokens")
+        print(f"      {Color.BOLD}Total: {token_summary['round_total']} tokens{Color.RESET}")
+        print()
+        print(f"{Color.BLUE}📊 累计统计:{Color.RESET}")
+        print(f"{Color.DIM}{'-'*40}{Color.RESET}")
+        print(f"   累计 Prompt: {total_stats.prompt_tokens} tokens")
+        print(f"   累计 Completion: {total_stats.completion_tokens} tokens")
+        print(f"   {Color.BOLD}累计 Total: {total_stats.total_tokens} tokens{Color.RESET}")
+        print()
+        print(f"⏱️  本轮耗时: {elapsed:.2f}秒")
+        print(f"{Color.DIM}{'='*60}{Color.RESET}")
+        print()
 
     def _print_header(self):
         """打印欢迎信息"""
         print("=" * 60)
-        print("🤖 AI Agent - 基于硅基流动API")
+        print("🤖 AI Agent - 基于硅基流动API (ReAct模式)")
         print("=" * 60)
         print()
         print(f"📦 模型: {self._agent.model if self._agent else self._settings.siliconflow_model}")
@@ -77,11 +187,12 @@ class SimpleCLI:
         print("   /help    - 显示帮助")
         print("   /clear   - 清空对话历史")
         print("   /stats   - 查看对话统计")
+        print("   /tools   - 查看可用工具")
         print("   /models  - 查看可用模型")
         print("   /model   - 切换模型")
         print("   /quit    - 退出程序")
         print()
-        print("✨ 提示: AI回复会实时流式显示，不会卡顿！")
+        print("✨ 提示: 支持实时工具调用和Token统计显示！")
         print("-" * 60)
         print()
 
@@ -91,19 +202,45 @@ class SimpleCLI:
         print("📖 帮助信息：")
         print("-" * 40)
         print("直接输入消息即可与AI助手对话。")
+        print("AI会根据需要自动调用工具来回答问题。")
         print()
         print("可用命令：")
         print("  /help          显示此帮助信息")
         print("  /clear         清空对话历史")
         print("  /stats         查看对话统计信息")
+        print("  /tools         查看可用工具列表")
         print("  /models        列出可用的模型")
         print("  /model <名称>  切换到指定模型")
         print("  /quit, /exit   退出程序")
         print()
-        print("流式输出说明：")
-        print("  - AI回复会实时逐字显示")
-        print("  - 如果长时间没有响应，可以按 Ctrl+C 中断")
+        print("ReAct模式说明：")
+        print("  - AI会先思考（Thought）需要做什么")
+        print("  - 如果需要工具，会调用工具（Action）")
+        print("  - 工具执行后返回结果（Observation）")
+        print("  - 重复上述步骤直到得到最终答案（Final Answer）")
         print()
+
+    def _print_tools(self):
+        """打印可用工具列表"""
+        if not self._agent:
+            print("❌ Agent未初始化")
+            return
+
+        tools = self._agent.list_tools()
+        print()
+        print("🔧 可用工具：")
+        print("-" * 40)
+        for i, tool in enumerate(tools, 1):
+            print(f"  {i}. {Color.CYAN}{tool['name']}{Color.RESET}")
+            print(f"     {tool['description']}")
+            params = tool.get('parameters', {}).get('properties', {})
+            if params:
+                print(f"     参数:")
+                for param_name, param_info in params.items():
+                    required = tool.get('parameters', {}).get('required', [])
+                    req_mark = " *" if param_name in required else ""
+                    print(f"       - {param_name}{req_mark}: {param_info.get('description', '无描述')}")
+            print()
 
     def _print_stats(self):
         """打印统计信息"""
@@ -112,11 +249,15 @@ class SimpleCLI:
             return
 
         summary = self._agent.get_history_summary()
+        token_stats = self._agent.get_token_stats()
+        
         print()
         print("📊 对话统计：")
         print("-" * 40)
         print(f"  消息数量: {summary['message_count']}")
-        print(f"  总Token数: {summary['total_tokens']}")
+        print(f"  Prompt Tokens: {token_stats.prompt_tokens}")
+        print(f"  Completion Tokens: {token_stats.completion_tokens}")
+        print(f"  {Color.BOLD}总Token数: {token_stats.total_tokens}{Color.RESET}")
         print(f"  创建时间: {summary['created_at']}")
         print(f"  最后更新: {summary['updated_at']}")
         print(f"  当前模型: {self._agent.model}")
@@ -200,6 +341,9 @@ class SimpleCLI:
         elif cmd == "/stats":
             self._print_stats()
 
+        elif cmd == "/tools":
+            self._print_tools()
+
         elif cmd == "/models":
             self._list_models()
 
@@ -229,101 +373,56 @@ class SimpleCLI:
             self._running = False
             return ""
 
-    def _print_assistant_response(self, response: str):
-        """打印助手回复"""
-        print()
-        print("🤖 AI助手:")
-        # 逐行打印，保持格式
-        lines = response.split("\n")
-        for line in lines:
-            print(f"   {line}")
-        print()
-
-    def _chat_stream(self, user_message: str) -> bool:
+    def _chat(self, user_message: str):
         """
-        流式对话（实时显示）
+        进行对话（ReAct模式）
 
         Args:
             user_message: 用户消息
-
-        Returns:
-            是否成功
         """
         if not self._agent:
             print("❌ Agent未初始化")
-            return False
+            return
 
-        # 显示加载动画（等待第一个token）
-        loading = LoadingAnimation("正在思考", interval=0.1)
-        full_response = ""
-        first_token = True
         start_time = time.time()
+        
+        self._token_tracker.reset(self._agent)
+        
+        estimated = self._token_tracker.estimated_context_tokens
+        print(f"\n{Color.DIM}📊 上下文Token估计: {estimated} tokens{Color.RESET}")
+        print(f"{Color.YELLOW}🤔 思考中...{Color.RESET}")
 
         try:
-            for chunk in self._agent.chat_stream(user_message):
-                if first_token:
-                    # 第一个token到达，停止加载动画
-                    loading.stop()
-                    print("\r🤖 AI助手: ", end="", flush=True)
-                    first_token = False
-
-                # 实时显示内容
-                print(chunk, end="", flush=True)
-                full_response += chunk
-
-            # 流式输出完成
-            if first_token:
-                # 没有收到任何内容
-                loading.stop()
-                print("❌ 未收到任何响应")
-                return False
-
-            # 换行
-            print()
-            print()
-
-            # 显示统计信息
+            response = self._agent.chat(
+                user_message,
+                on_thought=self._print_thought,
+                on_action=self._print_action,
+                on_observation=self._print_observation,
+                on_final_answer=self._print_final_answer,
+            )
+            
+            self._token_tracker.update(self._agent)
+            
             elapsed = time.time() - start_time
-            summary = self._agent.get_history_summary()
-            print(f"⏱️  耗时: {elapsed:.2f}秒 | 📊 Token: {summary['total_tokens']}")
-            print()
-
-            return True
+            self._print_token_stats(elapsed)
 
         except KeyboardInterrupt:
-            # 用户中断
-            loading.stop()
             print()
             print("\n⚠️  已中断请求")
             print()
-            return False
 
         except Exception as e:
-            loading.stop()
             print()
-            print(f"\n❌ 错误: {e}")
+            print(f"\n{Color.RED}❌ 错误: {e}{Color.RESET}")
             if self._settings.debug:
                 import traceback
-
                 traceback.print_exc()
             print()
-            return False
-
-    def _chat(self, user_message: str):
-        """
-        进行对话（默认使用流式输出）
-
-        Args:
-            user_message: 用户消息
-        """
-        # 默认使用流式输出，体验更好
-        self._chat_stream(user_message)
 
     def run(self):
         """运行命令行界面"""
-        # 初始化Agent
         if self._agent is None:
-            self._agent = SimpleAgent(settings=self._settings)
+            self._agent = ReActAgent(settings=self._settings)
 
         self._running = True
         self._print_header()
@@ -338,11 +437,9 @@ class SimpleCLI:
                 if not user_input:
                     continue
 
-                # 检查是否是命令
                 if user_input.startswith("/"):
                     self._handle_command(user_input)
                 else:
-                    # 普通对话
                     self._chat(user_input)
 
             except KeyboardInterrupt:
@@ -353,10 +450,8 @@ class SimpleCLI:
                 print(f"\n❌ 发生错误: {e}")
                 if self._settings.debug:
                     import traceback
-
                     traceback.print_exc()
 
-        # 清理资源
         if self._agent:
             self._agent.close()
 
@@ -368,7 +463,7 @@ class SimpleCLI:
 
 
 def run_cli(
-    agent: Optional[SimpleAgent] = None,
+    agent: Optional[ReActAgent] = None,
     settings: Optional[Settings] = None,
 ) -> None:
     """
