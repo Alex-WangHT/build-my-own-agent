@@ -331,26 +331,83 @@ class ReActAgent:
             包含action和action_input的字典，如果没有Action则返回None
         """
         action_match = re.search(r"Action:\s*(.+?)(?:\n|$)", text)
-        action_input_match = re.search(r"Action Input:\s*(.+?)(?:\n|$)", text, re.DOTALL)
+        if not action_match:
+            return None
 
-        if action_match:
-            action = action_match.group(1).strip()
+        action = action_match.group(1).strip()
 
-            action_input = {}
-            if action_input_match:
-                try:
-                    action_input_str = action_input_match.group(1).strip()
-                    action_input = json.loads(action_input_str)
-                except json.JSONDecodeError:
-                    logger.warning(f"Failed to parse Action Input as JSON: {action_input_match.group(1)}")
-                    action_input = {"raw_input": action_input_match.group(1).strip()}
+        action_input = {}
+        action_input_match = re.search(r"Action Input:\s*(.+?)(?:\n(?:Thought|Action|Observation|Final Answer):|$)", text, re.DOTALL | re.IGNORECASE)
 
-            return {
-                "action": action,
-                "action_input": action_input,
-            }
+        if action_input_match:
+            action_input_str = action_input_match.group(1).strip()
+            try:
+                action_input = self._extract_json(action_input_str)
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse Action Input as JSON: {action_input_str}")
+                action_input = {"raw_input": action_input_str}
 
-        return None
+        return {
+            "action": action,
+            "action_input": action_input,
+        }
+
+    def _extract_json(self, text: str) -> Dict[str, Any]:
+        """
+        从文本中提取JSON对象，处理可能的格式问题
+
+        Args:
+            text: 可能包含JSON的文本
+
+        Returns:
+            解析后的JSON对象
+
+        Raises:
+            json.JSONDecodeError: 如果无法解析
+        """
+        text = text.strip()
+
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        start_idx = text.find('{')
+        if start_idx == -1:
+            raise json.JSONDecodeError("No JSON object found", text, 0)
+
+        brace_count = 0
+        end_idx = -1
+        in_string = False
+        escape_next = False
+
+        for i, char in enumerate(text[start_idx:], start=start_idx):
+            if escape_next:
+                escape_next = False
+                continue
+
+            if char == '\\':
+                escape_next = True
+                continue
+
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+
+            if not in_string:
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0:
+                        end_idx = i + 1
+                        break
+
+        if end_idx == -1:
+            raise json.JSONDecodeError("Unclosed JSON object", text, start_idx)
+
+        json_str = text[start_idx:end_idx]
+        return json.loads(json_str)
 
     def _parse_final_answer(self, text: str) -> Optional[str]:
         """
@@ -454,13 +511,6 @@ class ReActAgent:
                 if on_thought:
                     on_thought(assistant_message)
 
-                final_answer = self._parse_final_answer(assistant_message)
-                if final_answer:
-                    logger.info(f"Final answer found after {iterations} iterations")
-                    if on_final_answer:
-                        on_final_answer(final_answer)
-                    return final_answer
-
                 action_info = self._parse_action(assistant_message)
                 if action_info:
                     action = action_info["action"]
@@ -479,6 +529,13 @@ class ReActAgent:
 
                     logger.debug(f"Observation: {observation[:200] if len(observation) > 200 else observation}")
                 else:
+                    final_answer = self._parse_final_answer(assistant_message)
+                    if final_answer:
+                        logger.info(f"Final answer found after {iterations} iterations")
+                        if on_final_answer:
+                            on_final_answer(final_answer)
+                        return final_answer
+
                     logger.warning("No Action or Final Answer found in response, continuing...")
                     if "Final Answer" in assistant_message:
                         final_answer = assistant_message.split("Final Answer:")[-1].strip()
