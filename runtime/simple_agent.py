@@ -1,6 +1,8 @@
 """
 ReAct对话Agent模块
 实现ReAct方式的工具调用和推理
+
+这是运行时 (runtime) 模块的一部分
 """
 
 import json
@@ -22,7 +24,7 @@ from provider import (
 from tools.tool import Tool, ToolRegistry, default_registry
 
 try:
-    from agent.io.base import (
+    from runtime.io.base import (
         AgentIO,
         ThoughtEvent,
         ActionEvent,
@@ -32,7 +34,7 @@ try:
         SystemEvent,
         ErrorEvent,
     )
-    from agent.io.adapter import NoopIO
+    from runtime.io.adapter import NoopIO
     IO_AVAILABLE = True
 except ImportError:
     IO_AVAILABLE = False

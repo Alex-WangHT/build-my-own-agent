@@ -8,7 +8,7 @@ from typing import Optional
 
 from tui.themes.base import Theme, Color
 from tui.themes.registry import get_theme
-from agent.io.base import (
+from runtime.io.base import (
     AgentIO,
     ThoughtEvent,
     ActionEvent,

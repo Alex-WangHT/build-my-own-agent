@@ -6,7 +6,7 @@
 import logging
 from typing import Optional
 
-from agent.io.base import (
+from runtime.io.base import (
     AgentIO,
     ThoughtEvent,
     ActionEvent,
@@ -55,11 +55,12 @@ class LoggingIO(AgentIO):
     将所有事件记录到日志，不进行实际交互
     """
 
-    def __init__(self, logger_name: str = "agent.io"):
+    def __init__(self, logger_name: str = "runtime.io"):
         self._logger = logging.getLogger(logger_name)
 
     def on_thought(self, event: ThoughtEvent) -> None:
-        self._logger.debug(f"[Thought] {event.content[:100] if len(event.content) > 100 else event.content}")
+        content_preview = event.content[:100] if len(event.content) > 100 else event.content
+        self._logger.debug(f"[Thought] {content_preview}")
 
     def on_action(self, event: ActionEvent) -> None:
         self._logger.info(f"[Action] {event.action}")
@@ -67,10 +68,12 @@ class LoggingIO(AgentIO):
 
     def on_observation(self, event: ObservationEvent) -> None:
         self._logger.info(f"[Observation] {event.action}")
-        self._logger.debug(f"[Observation Content] {event.observation[:200] if len(event.observation) > 200 else event.observation}")
+        obs_preview = event.observation[:200] if len(event.observation) > 200 else event.observation
+        self._logger.debug(f"[Observation Content] {obs_preview}")
 
     def on_final_answer(self, event: FinalAnswerEvent) -> None:
-        self._logger.info(f"[Final Answer] {event.answer[:100] if len(event.answer) > 100 else event.answer}")
+        answer_preview = event.answer[:100] if len(event.answer) > 100 else event.answer
+        self._logger.info(f"[Final Answer] {answer_preview}")
 
     def on_token_stats(self, event: TokenStatsEvent) -> None:
         self._logger.info(

@@ -1,6 +1,6 @@
 """
-Agent IO 基础接口
-定义 Agent 与外部交互的抽象接口
+Runtime IO 基础接口
+定义 Agent Runtime 与外部交互的抽象接口
 参考 ZeroClaw 的 trait 驱动架构设计
 """
 

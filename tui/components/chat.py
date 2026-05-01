@@ -7,7 +7,7 @@ import json
 import time
 from typing import Optional, Dict, Any, List
 
-from agent.simple_agent import ReActAgent
+from runtime.simple_agent import ReActAgent
 from config.settings import Settings, get_settings
 from tui.themes.base import Theme, Color
 

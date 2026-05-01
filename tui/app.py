@@ -13,8 +13,8 @@ import time
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
-from agent.simple_agent import ReActAgent
-from agent.io.base import (
+from runtime.simple_agent import ReActAgent
+from runtime.io.base import (
     ThoughtEvent,
     ActionEvent,
     ObservationEvent,
@@ -471,6 +471,6 @@ def run_simple(
 
 
 try:
-    from agent.io.base import IO_AVAILABLE
+    from runtime.io.base import IO_AVAILABLE
 except ImportError:
     IO_AVAILABLE = False

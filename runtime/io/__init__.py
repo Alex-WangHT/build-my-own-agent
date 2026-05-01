@@ -1,10 +1,12 @@
 """
-Agent IO 模块
-定义 Agent 与外部交互的接口和事件类型
+Runtime IO 模块
+定义 Agent Runtime 与外部交互的接口和事件类型
 """
 
-from agent.io.base import AgentIO, EventType, Event
-from agent.io.events import (
+from runtime.io.base import (
+    AgentIO,
+    EventType,
+    Event,
     ThoughtEvent,
     ActionEvent,
     ObservationEvent,
@@ -14,7 +16,7 @@ from agent.io.events import (
     SystemEvent,
     ErrorEvent,
 )
-from agent.io.adapter import LoggingIO, NoopIO
+from runtime.io.adapter import LoggingIO, NoopIO, MultiIO
 
 __all__ = [
     "AgentIO",
@@ -30,4 +32,5 @@ __all__ = [
     "ErrorEvent",
     "LoggingIO",
     "NoopIO",
+    "MultiIO",
 ]
