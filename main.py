@@ -11,9 +11,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-# 添加项目根目录到Python路径
+# 添加src目录到Python路径
 project_root = Path(__file__).parent
-sys.path.insert(0, str(project_root))
+src_path = project_root / "src"
+sys.path.insert(0, str(src_path))
 
 
 def setup_logging(debug: bool = False) -> None:
@@ -143,25 +144,25 @@ def main():
         epilog="""
 示例:
   # 启动交互式对话模式（带启动动画）
-  python chat.py
+  python main.py
 
   # 跳过启动动画
-  python chat.py --no-splash
+  python main.py --no-splash
 
   # 使用指定主题
-  python chat.py --theme dark
+  python main.py --theme dark
 
   # 发送单条消息
-  python chat.py "你好，请介绍一下你自己"
+  python main.py "你好，请介绍一下你自己"
 
   # 调试模式
-  python chat.py --debug "你好"
+  python main.py --debug "你好"
 
   # 查看可用主题
-  python chat.py --themes
+  python main.py --themes
 
   # 查看帮助
-  python chat.py --help
+  python main.py --help
         """,
     )
 
