@@ -103,19 +103,33 @@ def run_single_message(message: str, debug: bool = False) -> None:
         sys.exit(1)
 
 
-def run_interactive(debug: bool = False) -> None:
+def run_interactive(
+    debug: bool = False,
+    theme: str = None,
+    no_splash: bool = False,
+    splash_duration: float = 2.0,
+) -> None:
     """
     运行交互式命令行模式
 
     Args:
         debug: 是否开启调试模式
+        theme: 主题名称
+        no_splash: 是否跳过启动界面
+        splash_duration: 启动动画持续时间（秒）
     """
     from tui.app import run_cli
 
-    print("🚀 启动AI Agent 命令行界面...")
-    print("按 Ctrl+C 或输入 /quit 退出\n")
+    if no_splash:
+        print("🚀 启动AI Agent 命令行界面...")
+        print("按 Ctrl+C 或输入 /quit 退出\n")
 
-    run_cli()
+    run_cli(
+        theme=theme,
+        show_splash=not no_splash,
+        splash_animate=True,
+        splash_duration=splash_duration,
+    )
 
 
 def main():
@@ -124,18 +138,27 @@ def main():
     load_dotenv()
 
     parser = argparse.ArgumentParser(
-        description="AI Agent - 基于硅基流动API的智能对话系统",
+        description="AlexClaw AI Agent - 基于硅基流动API的智能对话系统",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
-  # 启动交互式对话模式
+  # 启动交互式对话模式（带启动动画）
   python chat.py
+
+  # 跳过启动动画
+  python chat.py --no-splash
+
+  # 使用指定主题
+  python chat.py --theme dark
 
   # 发送单条消息
   python chat.py "你好，请介绍一下你自己"
 
-  # 调试模式（流式输出）
+  # 调试模式
   python chat.py --debug "你好"
+
+  # 查看可用主题
+  python chat.py --themes
 
   # 查看帮助
   python chat.py --help
@@ -155,7 +178,47 @@ def main():
         help="开启调试模式",
     )
 
+    parser.add_argument(
+        "-t",
+        "--theme",
+        type=str,
+        default=None,
+        help="指定主题名称 (default, dark, light)",
+    )
+
+    parser.add_argument(
+        "--themes",
+        action="store_true",
+        help="列出所有可用主题",
+    )
+
+    parser.add_argument(
+        "--no-splash",
+        action="store_true",
+        help="跳过启动动画",
+    )
+
+    parser.add_argument(
+        "--splash-duration",
+        type=float,
+        default=2.0,
+        help="启动动画持续时间（秒），默认2.0秒",
+    )
+
     args = parser.parse_args()
+
+    # 列出可用主题
+    if args.themes:
+        from tui.themes.registry import list_themes
+
+        themes = list_themes()
+        print("\n🎨 可用主题：")
+        print("-" * 40)
+        for i, theme_info in enumerate(themes, 1):
+            print(f"  {i}. {theme_info['name']}")
+            print(f"     {theme_info['description']}")
+            print()
+        sys.exit(0)
 
     # 设置日志
     setup_logging(debug=args.debug)
@@ -171,7 +234,12 @@ def main():
     else:
         # 交互式模式
         try:
-            run_interactive(debug=args.debug)
+            run_interactive(
+                debug=args.debug,
+                theme=args.theme,
+                no_splash=args.no_splash,
+                splash_duration=args.splash_duration,
+            )
         except KeyboardInterrupt:
             print("\n👋 再见！")
         except Exception as e:
