@@ -1,9 +1,11 @@
 """
-简单对话Agent
-实现基本的对话功能，包括上下文管理和错误处理
+对话Agent模块
+实现基本对话功能和ReAct方式的工具调用
 """
 
+import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import List, Optional, Dict, Any, Iterator
@@ -18,6 +20,7 @@ from llm.client import (
     AuthenticationError,
     RateLimitError,
 )
+from tools.tool import Tool, ToolRegistry, default_registry
 
 logger = logging.getLogger(__name__)
 
@@ -391,6 +394,383 @@ class SimpleAgent:
         """关闭资源"""
         self._client.close()
         logger.info("Agent closed")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
+
+@dataclass
+class ReActStep:
+    """
+    ReAct思考步骤
+    记录每一步的思考、行动和观察
+    """
+
+    thought: str
+    action: str = None
+    action_input: Dict[str, Any] = field(default_factory=dict)
+    observation: str = None
+
+
+REACT_SYSTEM_PROMPT = """你是一个有用的AI助手，能够通过思考和行动来解决问题。
+
+你可以使用以下工具来帮助回答问题：
+{tools_description}
+
+请按照以下格式进行思考和行动：
+
+1. 首先思考当前需要做什么（Thought）
+2. 如果需要使用工具，指定要使用的工具名称（Action）和参数（Action Input）
+   - Action Input必须是一个有效的JSON对象
+3. 等待工具执行结果（Observation）
+4. 重复上述步骤直到你能够回答用户的问题
+5. 最后给出最终答案（Final Answer）
+
+格式示例：
+Thought: 用户想知道2+3等于多少，我需要使用计算器工具。
+Action: calculator
+Action Input: {"expression": "2 + 3"}
+
+（系统执行工具后会返回Observation）
+
+Thought: 计算器返回了结果5，现在我可以给出最终答案了。
+Final Answer: 2 + 3 = 5
+
+重要规则：
+- 如果你不确定答案，或者需要更多信息，请使用工具
+- 每个Action之后必须等待Observation才能继续
+- 当你有足够信息时，直接使用Final Answer结束
+- Action Input必须是合法的JSON格式，不要有多余的文本
+
+现在请回答用户的问题。"""
+
+
+class ReActAgent:
+    """
+    ReAct方式的对话Agent
+    实现"思考-行动-观察"的循环推理
+    """
+
+    def __init__(
+        self,
+        system_prompt: str = None,
+        model: str = None,
+        settings: Settings = None,
+        tool_registry: ToolRegistry = None,
+        max_iterations: int = 10,
+    ):
+        """
+        初始化ReAct Agent
+
+        Args:
+            system_prompt: 系统提示词（可选）
+            model: 使用的模型
+            settings: 配置实例
+            tool_registry: 工具注册表（如果不提供则使用默认注册表）
+            max_iterations: 最大迭代次数，防止无限循环
+        """
+        self._settings = settings or get_settings()
+        self._model = model or self._settings.siliconflow_model
+        self._tool_registry = tool_registry or default_registry
+        self._max_iterations = max_iterations
+
+        self._client = SiliconFlowClient(settings=self._settings)
+        self._conversation = Conversation()
+
+        tools_description = self._tool_registry.get_tools_description()
+        base_system_prompt = REACT_SYSTEM_PROMPT.format(tools_description=tools_description)
+
+        if system_prompt:
+            full_system_prompt = f"{system_prompt}\n\n{base_system_prompt}"
+        else:
+            full_system_prompt = base_system_prompt
+
+        self._conversation.add_system_message(full_system_prompt)
+
+        logger.info(f"ReActAgent initialized with model: {self._model}")
+        logger.info(f"Registered tools: {[t.name for t in self._tool_registry.list_tools()]}")
+
+    @property
+    def conversation(self) -> Conversation:
+        """获取对话历史"""
+        return self._conversation
+
+    @property
+    def model(self) -> str:
+        """获取当前模型"""
+        return self._model
+
+    @model.setter
+    def model(self, value: str):
+        """设置模型"""
+        self._model = value
+        logger.info(f"Model changed to: {value}")
+
+    def _parse_action(self, text: str) -> Dict[str, Any]:
+        """
+        解析LLM输出中的Action和Action Input
+
+        Args:
+            text: LLM的输出文本
+
+        Returns:
+            包含action和action_input的字典，如果没有Action则返回None
+        """
+        action_match = re.search(r"Action:\s*(.+?)(?:\n|$)", text)
+        action_input_match = re.search(r"Action Input:\s*(.+?)(?:\n|$)", text, re.DOTALL)
+
+        if action_match:
+            action = action_match.group(1).strip()
+
+            action_input = {}
+            if action_input_match:
+                try:
+                    action_input_str = action_input_match.group(1).strip()
+                    action_input = json.loads(action_input_str)
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to parse Action Input as JSON: {action_input_match.group(1)}")
+                    action_input = {"raw_input": action_input_match.group(1).strip()}
+
+            return {
+                "action": action,
+                "action_input": action_input,
+            }
+
+        return None
+
+    def _parse_final_answer(self, text: str) -> Optional[str]:
+        """
+        解析LLM输出中的Final Answer
+
+        Args:
+            text: LLM的输出文本
+
+        Returns:
+            Final Answer的内容，如果没有则返回None
+        """
+        final_answer_match = re.search(r"Final Answer:\s*(.+)", text, re.DOTALL)
+        if final_answer_match:
+            return final_answer_match.group(1).strip()
+        return None
+
+    def _execute_tool(self, action: str, action_input: Dict[str, Any]) -> str:
+        """
+        执行工具
+
+        Args:
+            action: 工具名称
+            action_input: 工具参数
+
+        Returns:
+            工具执行结果
+        """
+        tool = self._tool_registry.get(action)
+        if tool is None:
+            return f"Error: Tool '{action}' not found. Available tools: {[t.name for t in self._tool_registry.list_tools()]}"
+
+        logger.info(f"Executing tool: {action} with input: {action_input}")
+
+        try:
+            result = tool.execute(**action_input)
+            logger.info(f"Tool result: {result[:100] if len(result) > 100 else result}")
+            return result
+        except Exception as e:
+            error_msg = f"Error executing tool '{action}': {str(e)}"
+            logger.error(error_msg)
+            return error_msg
+
+    def _build_prompt(self, user_message: str) -> List[Message]:
+        """
+        构建发送给LLM的消息
+
+        Args:
+            user_message: 用户输入的消息
+
+        Returns:
+            消息列表
+        """
+        if len(self._conversation.messages) == 1 and self._conversation.messages[0].role == "system":
+            self._conversation.add_user_message(user_message)
+        else:
+            pass
+
+        messages = self._conversation.truncate_by_tokens(
+            max_tokens=self._settings.max_history_tokens
+        )
+
+        return messages
+
+    def chat(
+        self,
+        user_message: str,
+        temperature: float = None,
+        max_tokens: int = None,
+        **kwargs,
+    ) -> str:
+        """
+        使用ReAct方式进行对话
+
+        Args:
+            user_message: 用户消息
+            temperature: 生成温度
+            max_tokens: 最大生成Token数
+            **kwargs: 其他参数
+
+        Returns:
+            最终答案
+
+        Raises:
+            APIError: API调用错误
+            NetworkError: 网络错误
+            AuthenticationError: 认证错误
+            RateLimitError: 速率限制错误
+        """
+        logger.debug(f"User message: {user_message[:100]}...")
+
+        self._conversation.add_user_message(user_message)
+
+        iterations = 0
+        full_response = []
+
+        while iterations < self._max_iterations:
+            iterations += 1
+            logger.info(f"ReAct iteration {iterations}/{self._max_iterations}")
+
+            try:
+                messages = self._conversation.truncate_by_tokens(
+                    max_tokens=self._settings.max_history_tokens
+                )
+
+                response = self._client.chat(
+                    messages=messages,
+                    model=self._model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    **kwargs,
+                )
+
+                assistant_message = response.content
+                full_response.append(assistant_message)
+
+                self._conversation.add_assistant_message(assistant_message)
+                logger.debug(f"LLM response: {assistant_message[:200] if len(assistant_message) > 200 else assistant_message}")
+
+                final_answer = self._parse_final_answer(assistant_message)
+                if final_answer:
+                    logger.info(f"Final answer found after {iterations} iterations")
+                    return final_answer
+
+                action_info = self._parse_action(assistant_message)
+                if action_info:
+                    action = action_info["action"]
+                    action_input = action_info["action_input"]
+
+                    observation = self._execute_tool(action, action_input)
+
+                    observation_message = f"Observation: {observation}"
+                    self._conversation.add_user_message(observation_message)
+
+                    logger.debug(f"Observation: {observation[:200] if len(observation) > 200 else observation}")
+                else:
+                    logger.warning("No Action or Final Answer found in response, continuing...")
+                    if "Final Answer" in assistant_message:
+                        return assistant_message.split("Final Answer:")[-1].strip()
+
+            except AuthenticationError as e:
+                logger.error(f"Authentication error: {e}")
+                raise
+            except RateLimitError as e:
+                logger.warning(f"Rate limit error: {e}")
+                raise
+            except NetworkError as e:
+                logger.error(f"Network error: {e}")
+                raise
+            except APIError as e:
+                logger.error(f"API error: {e}")
+                raise
+            except Exception as e:
+                logger.exception(f"Unexpected error in chat: {e}")
+                raise
+
+        max_iter_msg = f"已达到最大迭代次数 ({self._max_iterations})，无法完成推理。请尝试简化问题或增加max_iterations。"
+        logger.warning(max_iter_msg)
+        return max_iter_msg
+
+    def chat_stream(
+        self,
+        user_message: str,
+        temperature: float = None,
+        max_tokens: int = None,
+        **kwargs,
+    ) -> Iterator[str]:
+        """
+        ReAct方式的流式对话
+        注意：流式输出会展示思考过程，但工具调用部分会在后台执行
+
+        Args:
+            user_message: 用户消息
+            temperature: 生成温度
+            max_tokens: 最大生成Token数
+            **kwargs: 其他参数
+
+        Yields:
+            每次返回的内容片段
+        """
+        logger.debug(f"User message (stream): {user_message[:100]}...")
+
+        final_answer = self.chat(
+            user_message=user_message,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            **kwargs,
+        )
+
+        for char in final_answer:
+            yield char
+
+    def clear_history(self):
+        """清空对话历史（保留系统提示词）"""
+        system_messages = [m for m in self._conversation.messages if m.role == "system"]
+        self._conversation.clear()
+        for msg in system_messages:
+            self._conversation.add_message(msg.role, msg.content, msg.name)
+        logger.info("Conversation history cleared (system prompt preserved)")
+
+    def get_history_summary(self) -> Dict[str, Any]:
+        """获取对话历史摘要"""
+        return {
+            "message_count": len(self._conversation.messages),
+            "total_tokens": self._conversation.total_tokens,
+            "created_at": self._conversation.created_at.isoformat(),
+            "updated_at": self._conversation.updated_at.isoformat(),
+        }
+
+    def list_tools(self) -> List[Dict[str, Any]]:
+        """
+        获取可用工具列表
+
+        Returns:
+            工具列表
+        """
+        return [tool.to_dict() for tool in self._tool_registry.list_tools()]
+
+    def list_models(self) -> List[Dict[str, Any]]:
+        """
+        获取可用模型列表
+
+        Returns:
+            模型列表
+        """
+        return self._client.list_models()
+
+    def close(self):
+        """关闭资源"""
+        self._client.close()
+        logger.info("ReActAgent closed")
 
     def __enter__(self):
         return self
