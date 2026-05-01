@@ -6,7 +6,8 @@ TUI IO 适配器
 import json
 from typing import Optional
 
-from tui.themes.base import Theme, get_theme, Color
+from tui.themes.base import Theme, Color
+from tui.themes.registry import get_theme
 from agent.io.base import (
     AgentIO,
     ThoughtEvent,
