@@ -11,8 +11,8 @@ from datetime import datetime
 from typing import List, Optional, Dict, Any, Iterator, Callable
 
 from config.settings import Settings, get_settings
-from llm.client import (
-    SiliconFlowClient,
+from provider import (
+    SiliconFlowProvider,
     Message,
     APIError,
     NetworkError,
@@ -311,7 +311,7 @@ class ReActAgent:
         else:
             self._io = None
 
-        self._client = SiliconFlowClient(settings=self._settings)
+        self._client = SiliconFlowProvider(settings=self._settings)
         self._conversation = Conversation()
 
         tools_description = self._tool_registry.get_tools_description()
