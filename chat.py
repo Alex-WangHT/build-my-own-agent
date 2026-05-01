@@ -68,7 +68,7 @@ def run_single_message(message: str, debug: bool = False) -> None:
         message: 用户消息
         debug: 是否开启调试模式
     """
-    from agent.simple_agent import SimpleAgent
+    from agent.simple_agent import ReActAgent
     from config.settings import get_settings
 
     settings = get_settings()
@@ -78,7 +78,7 @@ def run_single_message(message: str, debug: bool = False) -> None:
     print("🤔 正在思考...\n")
 
     try:
-        with SimpleAgent(settings=settings) as agent:
+        with ReActAgent(settings=settings) as agent:
             if debug:
                 # 调试模式：流式输出
                 print("🤖 AI助手: ", end="", flush=True)

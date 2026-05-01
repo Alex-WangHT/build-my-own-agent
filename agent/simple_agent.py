@@ -25,19 +25,99 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
+class TokenStats:
+    """Token统计信息"""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+
+    def add(self, usage: "Usage"):
+        """添加使用量"""
+        self.prompt_tokens += usage.prompt_tokens
+        self.completion_tokens += usage.completion_tokens
+        self.total_tokens += usage.total_tokens
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "prompt_tokens": self.prompt_tokens,
+            "completion_tokens": self.completion_tokens,
+            "total_tokens": self.total_tokens,
+        }
+
+
+def estimate_tokens(text: str, approx_tokens_per_char: float = 0.5) -> int:
+    """
+    估计文本的Token数量（近似值）
+    
+    Args:
+        text: 要估计的文本
+        approx_tokens_per_char: 每个字符大约的Token数，中文约0.5，英文约0.25
+    
+    Returns:
+        估计的Token数量
+    """
+    if not text:
+        return 0
+    
+    chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
+    other_chars = len(text) - chinese_chars
+    
+    chinese_tokens = chinese_chars * 0.5
+    other_tokens = other_chars * 0.25
+    
+    return int(chinese_tokens + other_tokens)
+
+
+def estimate_messages_tokens(messages: List[Message], approx_tokens_per_char: float = 0.5) -> int:
+    """
+    估计消息列表的Token数量（近似值）
+    
+    Args:
+        messages: 消息列表
+        approx_tokens_per_char: 每个字符大约的Token数
+    
+    Returns:
+        估计的Token数量
+    """
+    total = 0
+    for msg in messages:
+        total += estimate_tokens(msg.role, approx_tokens_per_char)
+        total += estimate_tokens(msg.content, approx_tokens_per_char)
+        if msg.name:
+            total += estimate_tokens(msg.name, approx_tokens_per_char)
+        total += 4
+    return total
+
+
+@dataclass
 class Conversation:
     """对话历史管理"""
 
     messages: List[Message] = field(default_factory=list)
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
-    total_tokens: int = 0
+    token_stats: TokenStats = field(default_factory=TokenStats)
+
+    @property
+    def total_tokens(self) -> int:
+        """获取总Token数"""
+        return self.token_stats.total_tokens
+
+    @total_tokens.setter
+    def total_tokens(self, value: int):
+        """设置总Token数（兼容旧代码）"""
+        self.token_stats.total_tokens = value
 
     def add_message(self, role: str, content: str, name: str = None):
         """添加消息"""
         message = Message(role=role, content=content, name=name)
         self.messages.append(message)
         self.updated_at = datetime.now()
+
+    def add_usage(self, usage: "Usage"):
+        """添加API使用量"""
+        self.token_stats.add(usage)
 
     def add_user_message(self, content: str):
         """添加用户消息"""
@@ -54,7 +134,7 @@ class Conversation:
     def clear(self):
         """清空对话历史"""
         self.messages = []
-        self.total_tokens = 0
+        self.token_stats = TokenStats()
 
     def get_recent_messages(self, max_count: int = None) -> List[Message]:
         """获取最近的消息"""
@@ -97,7 +177,7 @@ class Conversation:
             "messages": [m.to_dict() for m in self.messages],
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
-            "total_tokens": self.total_tokens,
+            "token_stats": self.token_stats.to_dict(),
         }
 
     @classmethod
@@ -118,11 +198,18 @@ class Conversation:
         else:
             updated_at = datetime.now()
 
+        token_stats_data = data.get("token_stats", {})
+        token_stats = TokenStats(
+            prompt_tokens=token_stats_data.get("prompt_tokens", 0),
+            completion_tokens=token_stats_data.get("completion_tokens", 0),
+            total_tokens=token_stats_data.get("total_tokens", data.get("total_tokens", 0)),
+        )
+
         return cls(
             messages=messages,
             created_at=created_at,
             updated_at=updated_at,
-            total_tokens=data.get("total_tokens", 0),
+            token_stats=token_stats,
         )
 
 
@@ -356,6 +443,9 @@ class ReActAgent:
                     **kwargs,
                 )
 
+                if response.usage:
+                    self._conversation.add_usage(response.usage)
+
                 assistant_message = response.content
 
                 self._conversation.add_assistant_message(assistant_message)
@@ -457,12 +547,29 @@ class ReActAgent:
 
     def get_history_summary(self) -> Dict[str, Any]:
         """获取对话历史摘要"""
+        token_stats = self._conversation.token_stats
         return {
             "message_count": len(self._conversation.messages),
-            "total_tokens": self._conversation.total_tokens,
+            "total_tokens": token_stats.total_tokens,
+            "prompt_tokens": token_stats.prompt_tokens,
+            "completion_tokens": token_stats.completion_tokens,
             "created_at": self._conversation.created_at.isoformat(),
             "updated_at": self._conversation.updated_at.isoformat(),
         }
+
+    def estimate_context_tokens(self) -> int:
+        """
+        估计当前上下文的Token数量（在发送请求前使用）
+        
+        Returns:
+            估计的Token数量
+        """
+        messages = self._conversation.get_recent_messages()
+        return estimate_messages_tokens(messages)
+
+    def get_token_stats(self) -> TokenStats:
+        """获取Token统计信息"""
+        return self._conversation.token_stats
 
     def list_tools(self) -> List[Dict[str, Any]]:
         """
