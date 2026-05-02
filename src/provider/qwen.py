@@ -5,6 +5,8 @@ Qwen (阿里千问) Provider 实现
 import sys
 from pathlib import Path
 
+import requests
+
 if __name__ == "__main__":
     src_path = Path(__file__).parent.parent
     sys.path.insert(0, str(src_path))
@@ -48,8 +50,6 @@ class QwenProvider(OpenAICompatibleProvider):
 
         if self.base_url.endswith("/"):
             self.base_url = self.base_url[:-1]
-
-        import requests
 
         self._session = requests.Session()
         self._session.headers.update(
