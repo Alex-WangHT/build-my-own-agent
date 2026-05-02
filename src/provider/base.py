@@ -361,3 +361,632 @@ class LLMProvider(ABC):
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.close()
         return False
+
+
+if __name__ == "__main__":
+    import unittest
+    from unittest.mock import Mock, patch, MagicMock
+    from typing import List, Dict, Any
+
+    class TestMessage(unittest.TestCase):
+        """Message 数据类单元测试"""
+
+        def test_init_defaults(self):
+            """测试默认初始化"""
+            msg = Message(role="user", content="Hello")
+            self.assertEqual(msg.role, "user")
+            self.assertEqual(msg.content, "Hello")
+            self.assertIsNone(msg.name)
+            self.assertIsNone(msg.tool_calls)
+            self.assertIsNone(msg.tool_call_id)
+
+        def test_init_full(self):
+            """测试完整初始化"""
+            tool_calls = [{"id": "1", "type": "function"}]
+            msg = Message(
+                role="assistant",
+                content="Hi",
+                name="test_bot",
+                tool_calls=tool_calls,
+                tool_call_id="call_123",
+            )
+            self.assertEqual(msg.role, "assistant")
+            self.assertEqual(msg.content, "Hi")
+            self.assertEqual(msg.name, "test_bot")
+            self.assertEqual(msg.tool_calls, tool_calls)
+            self.assertEqual(msg.tool_call_id, "call_123")
+
+        def test_to_dict_basic(self):
+            """测试基本的 to_dict"""
+            msg = Message(role="user", content="Hello")
+            result = msg.to_dict()
+            self.assertEqual(result, {"role": "user", "content": "Hello"})
+
+        def test_to_dict_full(self):
+            """测试完整的 to_dict"""
+            tool_calls = [{"id": "1", "type": "function"}]
+            msg = Message(
+                role="assistant",
+                content="Hi",
+                name="test_bot",
+                tool_calls=tool_calls,
+                tool_call_id="call_123",
+            )
+            result = msg.to_dict()
+            self.assertEqual(result["role"], "assistant")
+            self.assertEqual(result["content"], "Hi")
+            self.assertEqual(result["name"], "test_bot")
+            self.assertEqual(result["tool_calls"], tool_calls)
+            self.assertEqual(result["tool_call_id"], "call_123")
+
+        def test_from_dict_basic(self):
+            """测试基本的 from_dict"""
+            data = {"role": "user", "content": "Hello"}
+            msg = Message.from_dict(data)
+            self.assertEqual(msg.role, "user")
+            self.assertEqual(msg.content, "Hello")
+            self.assertIsNone(msg.name)
+            self.assertIsNone(msg.tool_calls)
+            self.assertIsNone(msg.tool_call_id)
+
+        def test_from_dict_full(self):
+            """测试完整的 from_dict"""
+            tool_calls = [{"id": "1", "type": "function"}]
+            data = {
+                "role": "assistant",
+                "content": "Hi",
+                "name": "test_bot",
+                "tool_calls": tool_calls,
+                "tool_call_id": "call_123",
+            }
+            msg = Message.from_dict(data)
+            self.assertEqual(msg.role, "assistant")
+            self.assertEqual(msg.content, "Hi")
+            self.assertEqual(msg.name, "test_bot")
+            self.assertEqual(msg.tool_calls, tool_calls)
+            self.assertEqual(msg.tool_call_id, "call_123")
+
+        def test_from_dict_defaults(self):
+            """测试 from_dict 的默认值"""
+            data = {}
+            msg = Message.from_dict(data)
+            self.assertEqual(msg.role, "user")
+            self.assertEqual(msg.content, "")
+
+
+    class TestFunctionCall(unittest.TestCase):
+        """FunctionCall 数据类单元测试"""
+
+        def test_init_defaults(self):
+            """测试默认初始化"""
+            func = FunctionCall(name="get_weather", arguments='{"city": "Beijing"}')
+            self.assertEqual(func.name, "get_weather")
+            self.assertEqual(func.arguments, '{"city": "Beijing"}')
+            self.assertIsNone(func.id)
+
+        def test_init_full(self):
+            """测试完整初始化"""
+            func = FunctionCall(
+                name="get_weather",
+                arguments='{"city": "Beijing"}',
+                id="call_123",
+            )
+            self.assertEqual(func.name, "get_weather")
+            self.assertEqual(func.arguments, '{"city": "Beijing"}')
+            self.assertEqual(func.id, "call_123")
+
+        def test_to_dict_basic(self):
+            """测试基本的 to_dict"""
+            func = FunctionCall(name="get_weather", arguments='{"city": "Beijing"}')
+            result = func.to_dict()
+            self.assertEqual(
+                result,
+                {"name": "get_weather", "arguments": '{"city": "Beijing"}'},
+            )
+
+        def test_to_dict_full(self):
+            """测试完整的 to_dict"""
+            func = FunctionCall(
+                name="get_weather",
+                arguments='{"city": "Beijing"}',
+                id="call_123",
+            )
+            result = func.to_dict()
+            self.assertEqual(result["name"], "get_weather")
+            self.assertEqual(result["arguments"], '{"city": "Beijing"}')
+            self.assertEqual(result["id"], "call_123")
+
+        def test_from_dict_basic(self):
+            """测试基本的 from_dict"""
+            data = {"name": "get_weather", "arguments": '{"city": "Beijing"}'}
+            func = FunctionCall.from_dict(data)
+            self.assertEqual(func.name, "get_weather")
+            self.assertEqual(func.arguments, '{"city": "Beijing"}')
+            self.assertIsNone(func.id)
+
+        def test_from_dict_full(self):
+            """测试完整的 from_dict"""
+            data = {
+                "name": "get_weather",
+                "arguments": '{"city": "Beijing"}',
+                "id": "call_123",
+            }
+            func = FunctionCall.from_dict(data)
+            self.assertEqual(func.name, "get_weather")
+            self.assertEqual(func.arguments, '{"city": "Beijing"}')
+            self.assertEqual(func.id, "call_123")
+
+        def test_from_dict_defaults(self):
+            """测试 from_dict 的默认值"""
+            data = {}
+            func = FunctionCall.from_dict(data)
+            self.assertEqual(func.name, "")
+            self.assertEqual(func.arguments, "{}")
+
+
+    class TestUsage(unittest.TestCase):
+        """Usage 数据类单元测试"""
+
+        def test_init_defaults(self):
+            """测试默认初始化"""
+            usage = Usage()
+            self.assertEqual(usage.prompt_tokens, 0)
+            self.assertEqual(usage.completion_tokens, 0)
+            self.assertEqual(usage.total_tokens, 0)
+
+        def test_init_full(self):
+            """测试完整初始化"""
+            usage = Usage(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+            self.assertEqual(usage.prompt_tokens, 10)
+            self.assertEqual(usage.completion_tokens, 20)
+            self.assertEqual(usage.total_tokens, 30)
+
+        def test_to_dict(self):
+            """测试 to_dict"""
+            usage = Usage(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+            result = usage.to_dict()
+            self.assertEqual(
+                result,
+                {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+            )
+
+        def test_from_dict_basic(self):
+            """测试基本的 from_dict"""
+            data = {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}
+            usage = Usage.from_dict(data)
+            self.assertEqual(usage.prompt_tokens, 10)
+            self.assertEqual(usage.completion_tokens, 20)
+            self.assertEqual(usage.total_tokens, 30)
+
+        def test_from_dict_defaults(self):
+            """测试 from_dict 的默认值"""
+            data = {}
+            usage = Usage.from_dict(data)
+            self.assertEqual(usage.prompt_tokens, 0)
+            self.assertEqual(usage.completion_tokens, 0)
+            self.assertEqual(usage.total_tokens, 0)
+
+        def test_from_dict_partial(self):
+            """测试部分字段的 from_dict"""
+            data = {"prompt_tokens": 10}
+            usage = Usage.from_dict(data)
+            self.assertEqual(usage.prompt_tokens, 10)
+            self.assertEqual(usage.completion_tokens, 0)
+            self.assertEqual(usage.total_tokens, 0)
+
+
+    class TestChatCompletionChoice(unittest.TestCase):
+        """ChatCompletionChoice 数据类单元测试"""
+
+        def test_init_defaults(self):
+            """测试默认初始化"""
+            choice = ChatCompletionChoice()
+            self.assertEqual(choice.index, 0)
+            self.assertEqual(choice.message.role, "assistant")
+            self.assertEqual(choice.message.content, "")
+            self.assertIsNone(choice.finish_reason)
+            self.assertIsNone(choice.delta)
+
+        def test_init_full(self):
+            """测试完整初始化"""
+            msg = Message(role="assistant", content="Hello")
+            delta = {"content": "H"}
+            choice = ChatCompletionChoice(
+                index=1,
+                message=msg,
+                finish_reason="stop",
+                delta=delta,
+            )
+            self.assertEqual(choice.index, 1)
+            self.assertEqual(choice.message, msg)
+            self.assertEqual(choice.finish_reason, "stop")
+            self.assertEqual(choice.delta, delta)
+
+        def test_to_dict_basic(self):
+            """测试基本的 to_dict"""
+            msg = Message(role="assistant", content="Hello")
+            choice = ChatCompletionChoice(index=0, message=msg, finish_reason="stop")
+            result = choice.to_dict()
+            self.assertEqual(result["index"], 0)
+            self.assertEqual(result["message"], {"role": "assistant", "content": "Hello"})
+            self.assertEqual(result["finish_reason"], "stop")
+            self.assertNotIn("delta", result)
+
+        def test_to_dict_with_delta(self):
+            """测试带 delta 的 to_dict"""
+            msg = Message(role="assistant", content="Hello")
+            delta = {"content": "H"}
+            choice = ChatCompletionChoice(
+                index=0,
+                message=msg,
+                finish_reason="stop",
+                delta=delta,
+            )
+            result = choice.to_dict()
+            self.assertEqual(result["delta"], delta)
+
+        def test_from_dict_basic(self):
+            """测试基本的 from_dict"""
+            data = {
+                "index": 1,
+                "message": {"role": "assistant", "content": "Hi"},
+                "finish_reason": "length",
+            }
+            choice = ChatCompletionChoice.from_dict(data)
+            self.assertEqual(choice.index, 1)
+            self.assertEqual(choice.message.role, "assistant")
+            self.assertEqual(choice.message.content, "Hi")
+            self.assertEqual(choice.finish_reason, "length")
+            self.assertIsNone(choice.delta)
+
+        def test_from_dict_with_delta(self):
+            """测试带 delta 的 from_dict"""
+            data = {
+                "index": 0,
+                "message": {"role": "assistant", "content": "Hi"},
+                "finish_reason": "stop",
+                "delta": {"content": "H"},
+            }
+            choice = ChatCompletionChoice.from_dict(data)
+            self.assertEqual(choice.delta, {"content": "H"})
+
+        def test_from_dict_defaults(self):
+            """测试 from_dict 的默认值"""
+            data = {}
+            choice = ChatCompletionChoice.from_dict(data)
+            self.assertEqual(choice.index, 0)
+            self.assertEqual(choice.message.role, "assistant")
+            self.assertEqual(choice.message.content, "")
+            self.assertIsNone(choice.finish_reason)
+            self.assertIsNone(choice.delta)
+
+
+    class TestChatCompletionResponse(unittest.TestCase):
+        """ChatCompletionResponse 数据类单元测试"""
+
+        def test_init_defaults(self):
+            """测试默认初始化"""
+            resp = ChatCompletionResponse()
+            self.assertEqual(resp.id, "")
+            self.assertEqual(resp.object, "chat.completion")
+            self.assertEqual(resp.created, 0)
+            self.assertEqual(resp.model, "")
+            self.assertEqual(resp.choices, [])
+            self.assertEqual(resp.usage.prompt_tokens, 0)
+            self.assertIsNone(resp.system_fingerprint)
+
+        def test_init_full(self):
+            """测试完整初始化"""
+            msg = Message(role="assistant", content="Hello")
+            choice = ChatCompletionChoice(index=0, message=msg, finish_reason="stop")
+            usage = Usage(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+            resp = ChatCompletionResponse(
+                id="chat_123",
+                object="chat.completion",
+                created=1700000000,
+                model="gpt-4",
+                choices=[choice],
+                usage=usage,
+                system_fingerprint="fp_123",
+            )
+
+            self.assertEqual(resp.id, "chat_123")
+            self.assertEqual(resp.object, "chat.completion")
+            self.assertEqual(resp.created, 1700000000)
+            self.assertEqual(resp.model, "gpt-4")
+            self.assertEqual(len(resp.choices), 1)
+            self.assertEqual(resp.usage.prompt_tokens, 10)
+            self.assertEqual(resp.system_fingerprint, "fp_123")
+
+        def test_content_property(self):
+            """测试 content 属性"""
+            msg = Message(role="assistant", content="Hello World")
+            choice = ChatCompletionChoice(index=0, message=msg, finish_reason="stop")
+            resp = ChatCompletionResponse(choices=[choice])
+            self.assertEqual(resp.content, "Hello World")
+
+        def test_content_property_empty_choices(self):
+            """测试空 choices 的 content 属性"""
+            resp = ChatCompletionResponse(choices=[])
+            self.assertEqual(resp.content, "")
+
+        def test_tool_calls_property(self):
+            """测试 tool_calls 属性"""
+            tool_calls = [{"id": "1", "type": "function"}]
+            msg = Message(role="assistant", content="", tool_calls=tool_calls)
+            choice = ChatCompletionChoice(index=0, message=msg, finish_reason="tool_calls")
+            resp = ChatCompletionResponse(choices=[choice])
+            self.assertEqual(resp.tool_calls, tool_calls)
+
+        def test_tool_calls_property_none(self):
+            """测试无 tool_calls 的 tool_calls 属性"""
+            msg = Message(role="assistant", content="Hello")
+            choice = ChatCompletionChoice(index=0, message=msg, finish_reason="stop")
+            resp = ChatCompletionResponse(choices=[choice])
+            self.assertIsNone(resp.tool_calls)
+
+        def test_to_dict_basic(self):
+            """测试基本的 to_dict"""
+            msg = Message(role="assistant", content="Hello")
+            choice = ChatCompletionChoice(index=0, message=msg, finish_reason="stop")
+            usage = Usage(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+            resp = ChatCompletionResponse(
+                id="chat_123",
+                created=1700000000,
+                model="gpt-4",
+                choices=[choice],
+                usage=usage,
+            )
+
+            result = resp.to_dict()
+            self.assertEqual(result["id"], "chat_123")
+            self.assertEqual(result["object"], "chat.completion")
+            self.assertEqual(result["created"], 1700000000)
+            self.assertEqual(result["model"], "gpt-4")
+            self.assertEqual(len(result["choices"]), 1)
+            self.assertEqual(result["usage"]["prompt_tokens"], 10)
+            self.assertNotIn("system_fingerprint", result)
+
+        def test_to_dict_with_system_fingerprint(self):
+            """测试带 system_fingerprint 的 to_dict"""
+            msg = Message(role="assistant", content="Hello")
+            choice = ChatCompletionChoice(index=0, message=msg, finish_reason="stop")
+            usage = Usage()
+
+            resp = ChatCompletionResponse(
+                id="chat_123",
+                choices=[choice],
+                usage=usage,
+                system_fingerprint="fp_123",
+            )
+
+            result = resp.to_dict()
+            self.assertEqual(result["system_fingerprint"], "fp_123")
+
+        def test_from_dict_basic(self):
+            """测试基本的 from_dict"""
+            data = {
+                "id": "chat_123",
+                "object": "chat.completion",
+                "created": 1700000000,
+                "model": "gpt-4",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "Hello"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+            }
+
+            resp = ChatCompletionResponse.from_dict(data)
+            self.assertEqual(resp.id, "chat_123")
+            self.assertEqual(resp.model, "gpt-4")
+            self.assertEqual(len(resp.choices), 1)
+            self.assertEqual(resp.choices[0].message.content, "Hello")
+            self.assertEqual(resp.usage.prompt_tokens, 10)
+
+        def test_from_dict_with_system_fingerprint(self):
+            """测试带 system_fingerprint 的 from_dict"""
+            data = {
+                "id": "chat_123",
+                "object": "chat.completion",
+                "created": 1700000000,
+                "model": "gpt-4",
+                "choices": [],
+                "usage": {},
+                "system_fingerprint": "fp_123",
+            }
+
+            resp = ChatCompletionResponse.from_dict(data)
+            self.assertEqual(resp.system_fingerprint, "fp_123")
+
+
+    class TestChatCompletionRequest(unittest.TestCase):
+        """ChatCompletionRequest 数据类单元测试"""
+
+        def test_init_minimal(self):
+            """测试最小化初始化"""
+            messages = [Message(role="user", content="Hello")]
+            req = ChatCompletionRequest(model="gpt-4", messages=messages)
+
+            self.assertEqual(req.model, "gpt-4")
+            self.assertEqual(len(req.messages), 1)
+            self.assertEqual(req.temperature, 0.7)
+            self.assertEqual(req.max_tokens, 4096)
+            self.assertEqual(req.top_p, 1.0)
+            self.assertEqual(req.frequency_penalty, 0.0)
+            self.assertEqual(req.presence_penalty, 0.0)
+            self.assertEqual(req.stream, False)
+            self.assertIsNone(req.stop)
+            self.assertIsNone(req.tools)
+            self.assertIsNone(req.tool_choice)
+            self.assertIsNone(req.response_format)
+
+        def test_init_full(self):
+            """测试完整初始化"""
+            messages = [Message(role="user", content="Hello")]
+            tools = [{"type": "function", "function": {"name": "test"}}]
+            stop = ["stop_word"]
+            response_format = {"type": "json_object"}
+
+            req = ChatCompletionRequest(
+                model="gpt-4",
+                messages=messages,
+                temperature=0.5,
+                max_tokens=2048,
+                top_p=0.9,
+                frequency_penalty=0.1,
+                presence_penalty=0.1,
+                stream=True,
+                stop=stop,
+                tools=tools,
+                tool_choice="auto",
+                response_format=response_format,
+            )
+
+            self.assertEqual(req.model, "gpt-4")
+            self.assertEqual(req.temperature, 0.5)
+            self.assertEqual(req.max_tokens, 2048)
+            self.assertEqual(req.top_p, 0.9)
+            self.assertEqual(req.frequency_penalty, 0.1)
+            self.assertEqual(req.presence_penalty, 0.1)
+            self.assertEqual(req.stream, True)
+            self.assertEqual(req.stop, stop)
+            self.assertEqual(req.tools, tools)
+            self.assertEqual(req.tool_choice, "auto")
+            self.assertEqual(req.response_format, response_format)
+
+        def test_to_dict_basic(self):
+            """测试基本的 to_dict"""
+            messages = [Message(role="user", content="Hello")]
+            req = ChatCompletionRequest(model="gpt-4", messages=messages)
+
+            result = req.to_dict()
+            self.assertEqual(result["model"], "gpt-4")
+            self.assertEqual(len(result["messages"]), 1)
+            self.assertEqual(result["messages"][0]["role"], "user")
+            self.assertEqual(result["temperature"], 0.7)
+            self.assertEqual(result["max_tokens"], 4096)
+            self.assertEqual(result["stream"], False)
+            self.assertNotIn("stop", result)
+            self.assertNotIn("tools", result)
+            self.assertNotIn("tool_choice", result)
+            self.assertNotIn("response_format", result)
+
+        def test_to_dict_with_optional_fields(self):
+            """测试带可选字段的 to_dict"""
+            messages = [Message(role="user", content="Hello")]
+            tools = [{"type": "function", "function": {"name": "test"}}]
+            stop = ["stop_word"]
+            response_format = {"type": "json_object"}
+
+            req = ChatCompletionRequest(
+                model="gpt-4",
+                messages=messages,
+                stop=stop,
+                tools=tools,
+                tool_choice="auto",
+                response_format=response_format,
+            )
+
+            result = req.to_dict()
+            self.assertEqual(result["stop"], stop)
+            self.assertEqual(result["tools"], tools)
+            self.assertEqual(result["tool_choice"], "auto")
+            self.assertEqual(result["response_format"], response_format)
+
+
+    class TestAPIError(unittest.TestCase):
+        """APIError 异常类单元测试"""
+
+        def test_init_basic(self):
+            """测试基本初始化"""
+            err = APIError("Test error message")
+            self.assertEqual(str(err), "Test error message")
+            self.assertIsNone(err.status_code)
+            self.assertIsNone(err.response)
+            self.assertIsNone(err.provider)
+
+        def test_init_full(self):
+            """测试完整初始化"""
+            response = {"error": {"message": "Something went wrong"}}
+            err = APIError(
+                "Test error message",
+                status_code=500,
+                response=response,
+                provider="test_provider",
+            )
+            self.assertEqual(str(err), "Test error message")
+            self.assertEqual(err.status_code, 500)
+            self.assertEqual(err.response, response)
+            self.assertEqual(err.provider, "test_provider")
+
+    class TestNetworkError(unittest.TestCase):
+        """NetworkError 异常类单元测试"""
+
+        def test_is_subclass_of_api_error(self):
+            """测试 NetworkError 是 APIError 的子类"""
+            self.assertTrue(issubclass(NetworkError, APIError))
+
+        def test_init(self):
+            """测试初始化"""
+            err = NetworkError("Connection failed")
+            self.assertEqual(str(err), "Connection failed")
+
+    class TestAuthenticationError(unittest.TestCase):
+        """AuthenticationError 异常类单元测试"""
+
+        def test_is_subclass_of_api_error(self):
+            """测试 AuthenticationError 是 APIError 的子类"""
+            self.assertTrue(issubclass(AuthenticationError, APIError))
+
+        def test_init(self):
+            """测试初始化"""
+            err = AuthenticationError("Invalid API key")
+            self.assertEqual(str(err), "Invalid API key")
+
+    class TestRateLimitError(unittest.TestCase):
+        """RateLimitError 异常类单元测试"""
+
+        def test_is_subclass_of_api_error(self):
+            """测试 RateLimitError 是 APIError 的子类"""
+            self.assertTrue(issubclass(RateLimitError, APIError))
+
+        def test_init(self):
+            """测试初始化"""
+            err = RateLimitError("Rate limit exceeded")
+            self.assertEqual(str(err), "Rate limit exceeded")
+
+    class TestModelNotFoundError(unittest.TestCase):
+        """ModelNotFoundError 异常类单元测试"""
+
+        def test_is_subclass_of_api_error(self):
+            """测试 ModelNotFoundError 是 APIError 的子类"""
+            self.assertTrue(issubclass(ModelNotFoundError, APIError))
+
+        def test_init(self):
+            """测试初始化"""
+            err = ModelNotFoundError("Model not found")
+            self.assertEqual(str(err), "Model not found")
+
+    class TestLLMProvider(unittest.TestCase):
+        """LLMProvider 抽象基类单元测试"""
+
+        def test_cannot_instantiate_abstract_class(self):
+            """测试不能直接实例化抽象基类"""
+            with self.assertRaises(TypeError):
+                LLMProvider()
+
+        def test_subclass_must_implement_abstract_methods(self):
+            """测试子类必须实现抽象方法"""
+            with self.assertRaises(TypeError):
+                class IncompleteProvider(LLMProvider):
+                    pass
+
+                IncompleteProvider()
+
+    unittest.main(verbosity=2)
