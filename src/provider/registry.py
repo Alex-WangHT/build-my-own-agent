@@ -8,6 +8,13 @@ from typing import Dict, Optional, List, Any, Type
 from config.settings import Settings, get_settings
 from provider.base import LLMProvider
 from provider.siliconflow import SiliconFlowProvider
+from provider.openai_provider import OpenAIProvider
+from provider.claude import ClaudeProvider
+from provider.deepseek import DeepseekProvider
+from provider.kimi import KimiProvider
+from provider.qwen import QwenProvider
+from provider.bigmodel import BigModelProvider
+from provider.openrouter import OpenrouterProvider
 
 
 class ProviderRegistry:
@@ -36,6 +43,13 @@ class ProviderRegistry:
         self._providers = {}
         self._instances = {}
         self.register("siliconflow", SiliconFlowProvider)
+        self.register("openai", OpenAIProvider)
+        self.register("claude", ClaudeProvider)
+        self.register("deepseek", DeepseekProvider)
+        self.register("kimi", KimiProvider)
+        self.register("qwen", QwenProvider)
+        self.register("bigmodel", BigModelProvider)
+        self.register("openrouter", OpenrouterProvider)
 
     def register(
         self, name: str, provider_class: Type[LLMProvider]
