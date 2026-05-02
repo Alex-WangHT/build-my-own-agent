@@ -3,6 +3,13 @@ Provider 注册表
 管理 LLM Provider 的注册和获取
 """
 
+import sys
+from pathlib import Path
+
+if __name__ == "__main__":
+    src_path = Path(__file__).parent.parent
+    sys.path.insert(0, str(src_path))
+
 from typing import Dict, Optional, List, Any, Type
 
 from config.settings import Settings, get_settings

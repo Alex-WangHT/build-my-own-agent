@@ -7,6 +7,13 @@ OpenAI 兼容 Provider 基类
 - 子类只需覆盖特定的配置项即可
 """
 
+import sys
+from pathlib import Path
+
+if __name__ == "__main__":
+    src_path = Path(__file__).parent.parent
+    sys.path.insert(0, str(src_path))
+
 import json
 import time
 from abc import ABC

@@ -5,6 +5,13 @@ Claude API 与 OpenAI API 不兼容，需要单独实现
 文档: https://platform.claude.com/docs/en/api/overview
 """
 
+import sys
+from pathlib import Path
+
+if __name__ == "__main__":
+    src_path = Path(__file__).parent.parent
+    sys.path.insert(0, str(src_path))
+
 import json
 import time
 from typing import List, Optional, Dict, Any, Iterator
