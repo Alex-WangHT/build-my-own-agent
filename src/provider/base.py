@@ -114,10 +114,13 @@ class ChatCompletionChoice:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ChatCompletionChoice":
-        message_data = data.get("message", {})
+        if "message" in data and data["message"] is not None:
+            message = Message.from_dict(data["message"])
+        else:
+            message = Message(role="assistant", content="")
         return cls(
             index=data.get("index", 0),
-            message=Message.from_dict(message_data),
+            message=message,
             finish_reason=data.get("finish_reason"),
             delta=data.get("delta"),
         )
